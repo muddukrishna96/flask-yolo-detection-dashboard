@@ -40,7 +40,7 @@
       <div class="container-fluid">
         <div class="row mb-2">
           <div class="col-sm-6">
-            <h1 class="m-0 text-dark">YOLOv9 Dashboard</h1>
+            <h1 class="m-0 text-dark">AI results Dashboard</h1>
           </div><!-- /.col -->
           <div class="col-sm-6">
             <ol class="breadcrumb float-sm-right">
@@ -72,7 +72,7 @@
               <div class="card-header">
                 <h3 class="card-title">
                   <i class="fas fa-chart-pie mr-1"></i>
-                  YOLOv9 Object Detection
+                  Upload or Stream for AI Processing
                 </h3>
 				
                 
@@ -85,16 +85,98 @@
             
 			<!-- AI code-->
 				 
-				   <form class="form-signin col-lg-3" method=post enctype=multipart/form-data name="form1">
+                   <form id="predict-form" class="form-signin col-lg-12" method=post enctype=multipart/form-data name="form1">
        
-        <h1 class="h3 mb-3 font-weight-normal">Upload any image or video</h1>
+  <div style="max-width:100%; margin:auto; text-align:center; padding:12px 8px;">
+    <h4 class="h4 mb-3 font-weight-normal" style="line-height:1.4;">Upload any image or video and press Predict to view your result</h4>
+    {% if message %}
+      <div class="alert alert-warning" role="alert" style="margin-top:8px;">{{ message }}</div>
+    {% endif %}
+  </div>
      <input type="file" name="file" class="form-control-file" id="inputfile" >
 
         <br/>
+    <!-- Model selection -->
+    <div style="margin-bottom:8px;">
+      <label for="model-select" class="sr-only">Model</label>
+      <select id="model-select" name="model" class="form-control form-control-sm">
+        <option value="yolov8n.pt" {% if selected_model=='yolov8n.pt' %}selected{% endif %}>YOLOv8n (yolov8n.pt)</option>
+        <option value="yolov8s.pt" {% if selected_model=='yolov8s.pt' %}selected{% endif %}>YOLOv8s (yolov8s.pt)</option>
+        <option value="yolov8m.pt" {% if selected_model=='yolov8m.pt' %}selected{% endif %}>YOLOv8m (yolov8m.pt)</option>
+        <option value="yolov9s.pt" {% if selected_model=='yolov9s.pt' %}selected{% endif %}>YOLOv9s (yolov9s.pt)</option>
+        <option value="yolov8n-oiv7.pt" {% if selected_model=='yolov8n-oiv7.pt' %}selected{% endif %}>YOLOv8n-OIV7 (yolov8n-oiv7.pt)</option>
+      </select>
+    </div>
 		    
-        <button class="btn btn-block btn-default btn-sm " type="submit">Upload</button>
-  <p class="mt-5 mb-3 text-muted">Built using Pytorch & Flask</p>
+  <button class="btn btn-block btn-default btn-sm " type="submit">Predict</button>
+  <button type="button" class="btn btn-block btn-primary btn-sm" id="webcam-btn" onclick="showWebcamModal();">Webcam</button>
+  <p class="mt-5 mb-3 text-muted"></p>
     </form>
+
+<!-- Webcam Selection Modal -->
+<div class="modal fade" id="webcamModal" tabindex="-1" role="dialog" aria-labelledby="webcamModalLabel" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="webcamModalLabel">Webcam Configuration</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Camera Mode:</label>
+          <select id="camera-mode-select" class="form-control" onchange="toggleDualCameraOptions()">
+            <option value="single">Single Camera</option>
+            <option value="dual">Multiple Cameras (2)</option>
+          </select>
+        </div>
+        
+        <!-- Single Camera Options -->
+        <div id="single-camera-options">
+          <div class="form-group">
+            <label>Camera 0 Model:</label>
+            <select id="single-model-select" class="form-control">
+              <option value="yolov8n.pt">YOLOv8n (yolov8n.pt)</option>
+              <option value="yolov8s.pt">YOLOv8s (yolov8s.pt)</option>
+              <option value="yolov8m.pt">YOLOv8m (yolov8m.pt)</option>
+              <option value="yolov9s.pt">YOLOv9s (yolov9s.pt)</option>
+              <option value="yolov8n-oiv7.pt">YOLOv8n-OIV7 (yolov8n-oiv7.pt)</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Dual Camera Options -->
+        <div id="dual-camera-options" style="display:none;">
+          <div class="form-group">
+            <label>Camera 0 Model:</label>
+            <select id="dual-model0-select" class="form-control">
+              <option value="yolov8n.pt">YOLOv8n (yolov8n.pt)</option>
+              <option value="yolov8s.pt">YOLOv8s (yolov8s.pt)</option>
+              <option value="yolov8m.pt">YOLOv8m (yolov8m.pt)</option>
+              <option value="yolov9s.pt">YOLOv9s (yolov9s.pt)</option>
+              <option value="yolov8n-oiv7.pt">YOLOv8n-OIV7 (yolov8n-oiv7.pt)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Camera 1 Model:</label>
+            <select id="dual-model1-select" class="form-control">
+              <option value="yolov8n.pt">YOLOv8n (yolov8n.pt)</option>
+              <option value="yolov8s.pt">YOLOv8s (yolov8s.pt)</option>
+              <option value="yolov8m.pt">YOLOv8m (yolov8m.pt)</option>
+              <option value="yolov9s.pt">YOLOv9s (yolov9s.pt)</option>
+              <option value="yolov8n-oiv7.pt">YOLOv8n-OIV7 (yolov8n-oiv7.pt)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="startSelectedWebcam()">Start Webcam</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 	
 	
@@ -117,7 +199,7 @@
               <div class="card-header">
                 <h3 class="card-title">
                   <i class="fas fa-chart-pie mr-1"></i>
-                  YOLOv9 Object Detection Results
+                  YOLO Object Detection Results
                 </h3>
 				
                 
@@ -132,22 +214,178 @@
 
 
 
-<!-- detected image display -->
-<img id="my-image"  src="{{ url_for('predict_img', filename=image_path) }}" style="height:640; width:640px; display: none;"/> 
+<!-- Result display area (images, video, or webcam stream will be loaded here) -->
+<div style="text-align:center;">
+  <!-- For images we reuse the img element. For server-generated video we'll swap in an img streaming from video_feed or an HTML5 video tag if desired. -->
+  <img id="result-display" src="" alt="Detection result" style="max-width:100%; height:640px; display: none; object-fit: contain; border:1px solid #ddd;" />
+  <img id="video-display" src="" alt="Video result" style="max-width:100%; height:640px; display: none; object-fit: contain; border:1px solid #ddd;" />
+  <!-- Loading spinner shown while server is processing -->
+  <div id="result-spinner" style="display:none; margin-top:16px;">
+    <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;">
+      <span class="sr-only">Loading...</span>
+    </div>
+    <div id="spinner-text" style="margin-top:8px; font-weight:500;">Processing, please wait...</div>
+  </div>
+  <div style="margin-top:8px;">
+    <button id="stop-btn" class="btn btn-danger btn-sm" style="display:none;">Close</button>
+  </div>
+</div>
 
 <script>
-document.getElementById("my-image").onload = function() {
-  this.style.display = "block";
-};
-</script>
+// Show uploaded/processed image if provided by server
+// server-provided processed image URL (empty string if none)
+var server_image_url = "{{ image_url if image_url else '' }}";
+var server_video_present = "{{ 'true' if video_present else 'false' }}" === 'true';
+var server_video_folder = "{{ video_folder if video_folder else '' }}";
+function showUploadedResult() {
+  if (server_image_url) {
+    var img = document.getElementById('result-display');
+    img.src = server_image_url;
+    img.style.display = 'block';
+    document.getElementById('stop-btn').style.display = 'inline-block';
+    // hide spinner once result is ready
+    var spinner = document.getElementById('result-spinner');
+    if (spinner) spinner.style.display = 'none';
+  }
+  else if (server_video_present) {
+    // show server-processed video: set src to video_feed with folder param so it reads the right file
+    var vimg = document.getElementById('video-display');
+    var feedUrl = "{{ url_for('video_feed') }}" + (server_video_folder ? "?folder=" + server_video_folder : "");
+    vimg.src = feedUrl;
+    vimg.style.display = 'block';
+    document.getElementById('stop-btn').style.display = 'inline-block';
+    var spinner = document.getElementById('result-spinner');
+    if (spinner) spinner.style.display = 'none';
+  }
+}
 
-<!-- detected video display using opencv-->
-<img id="my-video-image" src="{{ url_for('video_feed') }}" style="height:640; width:640px; display: none;" />
+// Show webcam configuration modal
+function showWebcamModal() {
+  // Get currently selected model from main dropdown and pre-select it
+  var mainModelSelect = document.getElementById('model-select');
+  var selectedModel = mainModelSelect ? mainModelSelect.value : 'yolov8n.pt';
+  
+  // Set default selections in modal
+  document.getElementById('single-model-select').value = selectedModel;
+  document.getElementById('dual-model0-select').value = selectedModel;
+  document.getElementById('dual-model1-select').value = selectedModel;
+  
+  // Show the modal
+  $('#webcamModal').modal('show');
+}
 
-<script>
-document.getElementById("my-video-image").onload = function() {
-  this.style.display = "block";
-};
+// Toggle dual camera options visibility
+function toggleDualCameraOptions() {
+  var mode = document.getElementById('camera-mode-select').value;
+  if (mode === 'single') {
+    document.getElementById('single-camera-options').style.display = 'block';
+    document.getElementById('dual-camera-options').style.display = 'none';
+  } else {
+    document.getElementById('single-camera-options').style.display = 'none';
+    document.getElementById('dual-camera-options').style.display = 'block';
+  }
+}
+
+// Start webcam based on selected configuration
+function startSelectedWebcam() {
+  var mode = document.getElementById('camera-mode-select').value;
+  var vimg = document.getElementById('video-display');
+  var img = document.getElementById('result-display');
+  var spinner = document.getElementById('result-spinner');
+  var spinnerText = document.getElementById('spinner-text');
+  
+  // Hide modal
+  $('#webcamModal').modal('hide');
+  
+  // Show loading spinner immediately with webcam-specific message
+  img.style.display = 'none';
+  vimg.style.display = 'none';
+  if (spinner) {
+    spinner.style.display = 'block';
+    if (spinnerText) {
+      if (mode === 'single') {
+        spinnerText.textContent = 'Initializing camera and loading model...';
+      } else {
+        spinnerText.textContent = 'Initializing cameras and loading models...';
+      }
+    }
+  }
+  
+  // Set up the webcam stream
+  if (mode === 'single') {
+    // Single camera mode
+    var model = document.getElementById('single-model-select').value;
+    vimg.src = "{{ url_for('webcam_feed') }}?model=" + model;
+  } else {
+    // Dual camera mode
+    var model0 = document.getElementById('dual-model0-select').value;
+    var model1 = document.getElementById('dual-model1-select').value;
+    vimg.src = "{{ url_for('webcam_feed_dual') }}?model0=" + model0 + "&model1=" + model1;
+  }
+  
+  // Show video display and hide spinner once stream starts loading
+  vimg.onload = function() {
+    if (spinner) spinner.style.display = 'none';
+    vimg.style.display = 'block';
+    document.getElementById('stop-btn').style.display = 'inline-block';
+  };
+  
+  // For MJPEG streams, onload may not fire, so use a timeout fallback
+  setTimeout(function() {
+    if (spinner && spinner.style.display !== 'none') {
+      spinner.style.display = 'none';
+      vimg.style.display = 'block';
+      document.getElementById('stop-btn').style.display = 'inline-block';
+    }
+  }, 5000); // Show video after 5 seconds to account for model loading + camera init
+}
+
+// Start webcam stream into the result area (kept for backward compatibility)
+function startWebcam() {
+  showWebcamModal();
+}
+
+// Stop any stream and clear the result area (works for image, processed video or webcam)
+function stopStream() {
+  var img = document.getElementById('result-display');
+  var vimg = document.getElementById('video-display');
+  var spinner = document.getElementById('result-spinner');
+  var spinnerText = document.getElementById('spinner-text');
+  
+  // Clearing src should close MJPEG connections in most browsers
+  try { img.src = ''; } catch(e) {}
+  try { vimg.src = ''; } catch(e) {}
+  img.style.display = 'none';
+  vimg.style.display = 'none';
+  document.getElementById('stop-btn').style.display = 'none';
+  
+  // Hide spinner and reset text
+  if (spinner) spinner.style.display = 'none';
+  if (spinnerText) spinnerText.textContent = 'Processing, please wait...';
+}
+
+document.getElementById('stop-btn').addEventListener('click', function(e){
+  stopStream();
+  // Optionally navigate back to top/home
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// If the server provided a processed image path, show it on load
+window.addEventListener('load', function(){
+  showUploadedResult();
+});
+
+// Show spinner when user submits the predict form
+document.getElementById('predict-form').addEventListener('submit', function(e){
+  // clear previous results
+  try { document.getElementById('result-display').src = ''; } catch(e) {}
+  try { document.getElementById('video-display').src = ''; } catch(e) {}
+  document.getElementById('result-display').style.display = 'none';
+  document.getElementById('video-display').style.display = 'none';
+  // show spinner
+  var spinner = document.getElementById('result-spinner');
+  if (spinner) spinner.style.display = 'block';
+});
 </script>
 
 

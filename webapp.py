@@ -1,164 +1,149 @@
+"""
+YOLO Object Detection Web Application
+Flask-based web interface for real-time object detection using YOLOv8/v9 models.
+Supports image, video, single webcam, and dual webcam processing.
+"""
 
 import argparse
-import io
-from PIL import Image
-import datetime
-
-import torch
-import cv2
-import numpy as np
-import tensorflow as tf
-from re import DEBUG, sub
-from flask import Flask, render_template, request, redirect, send_file, url_for, Response
-from werkzeug.utils import secure_filename, send_from_directory
 import os
-import subprocess
-from subprocess import Popen
-import re
-import requests
-import shutil
-import time
-import glob
+from flask import Flask, render_template, request, url_for, Response, send_from_directory
+
+# Import backend processing modules
+from backend.model_manager import get_model, preload_default_model
+from backend.image_video_processor import process_image, process_video, get_file_extension
+from backend.single_camera import get_webcam_frame
+from backend.dual_camera import get_dual_webcam_frame
+from backend.video_stream import get_frame, stream_file_mp4_as_mjpeg, get_video_from_folder
 
 
-from ultralytics import YOLO
-
-
+# Flask app initialization
 app = Flask(__name__)
+
+# Ensure uploads folder exists
+os.makedirs(os.path.join(os.path.dirname(__file__), 'uploads'), exist_ok=True)
 
 
 @app.route("/")
 def hello_world():
+    """Render main dashboard page."""
     return render_template('index.html')
 
     
 @app.route("/", methods=["GET", "POST"])
 def predict_img():
+    """
+    Handle image and video upload, process with selected YOLO model.
+    
+    Returns:
+        Rendered template with detection results
+    """
     if request.method == "POST":
         if 'file' in request.files:
             f = request.files['file']
             basepath = os.path.dirname(__file__)
-            filepath = os.path.join(basepath,'uploads',f.filename)
-            print("upload folder is ", filepath)
+            filepath = os.path.join(basepath, 'uploads', f.filename)
             f.save(filepath)
+            
+            # Store filename globally for reference
             global imgpath
             predict_img.imgpath = f.filename
-            print("printing predict_img :::::: ", predict_img)
-                                               
-            file_extension = f.filename.rsplit('.', 1)[1].lower() 
             
-            if file_extension == 'jpg':
-                img = cv2.imread(filepath)
-
-                # Perform the detection
-                model = YOLO('yolov9c.pt')
-                detections =  model(img, save=True) 
-                return display(f.filename)
+            # Determine selected model from form
+            model_name = request.form.get('model', 'yolov8n.pt')
+            file_extension = get_file_extension(f.filename)
             
-            elif file_extension == 'mp4': 
-                video_path = filepath  # replace with your video path
-                cap = cv2.VideoCapture(video_path)
-
-                # get video dimensions
-                frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                            
-                # Define the codec and create VideoWriter object
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter('output.mp4', fourcc, 30.0, (frame_width, frame_height))
+            try:
+                if file_extension == 'jpg':
+                    # Process image file
+                    latest_subfolder, processed_filename = process_image(filepath, model_name)
+                    image_url = url_for('display', folder=latest_subfolder, filename=processed_filename)
+                    return render_template('index.html', image_url=image_url, video_present=False, 
+                                         selected_model=model_name)
                 
-                # initialize the YOLOv8 model here
-                model = YOLO('yolov9c.pt')
-                
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret:
-                        break                                                      
-
-                    # do YOLOv9 detection on the frame here
-                    #model = YOLO('yolov9c.pt')
-                    results = model(frame, save=True)  #working
-                    print(results)
-                    cv2.waitKey(1)
-
-                    res_plotted = results[0].plot()
-                    cv2.imshow("result", res_plotted)
-                    
-                    # write the frame to the output video
-                    out.write(res_plotted)
-
-                    if cv2.waitKey(1) == ord('q'):
-                        break
-
-                return video_feed()            
-
-
+                elif file_extension == 'mp4':
+                    # Process video file
+                    latest_subfolder = process_video(filepath, model_name)
+                    return render_template('index.html', image_url='', video_present=True, 
+                                         video_folder=latest_subfolder, selected_model=model_name)
             
-    folder_path = 'runs/detect'
-    subfolders = [f for f in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, f))]    
-    latest_subfolder = max(subfolders, key=lambda x: os.path.getctime(os.path.join(folder_path, x)))    
-    image_path = folder_path+'/'+latest_subfolder+'/'+f.filename 
-    return render_template('index.html', image_path=image_path)
-    #return "done"
-
-
-
-# #The display function is used to serve the image or video from the folder_path directory.
-@app.route('/<path:filename>')
-def display(filename):
-    folder_path = 'runs/detect'
-    subfolders = [f for f in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, f))]    
-    latest_subfolder = max(subfolders, key=lambda x: os.path.getctime(os.path.join(folder_path, x)))    
-    directory = folder_path+'/'+latest_subfolder    
-    print("printing directory: ",directory) 
-    files = os.listdir(directory)
-    latest_file = files[0]
+            except Exception as e:
+                message = f"Error processing file with model '{model_name}': {e}"
+                return render_template('index.html', image_url='', video_present=False, 
+                                     selected_model=model_name, message=message)
     
-    print(latest_file)
+    # Default GET response
+    return render_template('index.html', selected_model='yolov8n.pt')
 
-    filename = os.path.join(folder_path, latest_subfolder, latest_file)
 
-    file_extension = filename.rsplit('.', 1)[1].lower()
-
-    environ = request.environ
-    if file_extension == 'jpg':      
-        return send_from_directory(directory,latest_file,environ) #shows the result in seperate tab
-
-    else:
-        return "Invalid file format"
+@app.route('/display/<folder>/<path:filename>')
+def display(folder, filename):
+    """
+    Serve processed result files from runs/detect/<folder>/filename.
+    
+    Args:
+        folder: Subfolder name in runs/detect
+        filename: Name of the file to serve
         
-        
-        
-
-def get_frame():
-    folder_path = os.getcwd()
-    mp4_files = 'output.mp4'
-    video = cv2.VideoCapture(mp4_files)  # detected video path
-    while True:
-        success, image = video.read()
-        if not success:
-            break
-        ret, jpeg = cv2.imencode('.jpg', image) 
-      
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')   
-        time.sleep(0.1)  #control the frame rate to display one frame every 100 milliseconds: 
+    Returns:
+        File from directory or 404
+    """
+    base = os.path.join(os.getcwd(), 'runs', 'detect')
+    directory = os.path.join(base, folder)
+    if not os.path.isdir(directory):
+        return "Not found", 404
+    return send_from_directory(directory, filename)
 
 
-# function to display the detected objects video on html page
 @app.route("/video_feed")
 def video_feed():
-    print("function called")
+    """
+    Stream processed video as MJPEG.
+    Accepts ?folder=<name> parameter to stream from specific runs/detect subfolder.
+    """
+    folder = request.args.get('folder', None)
+    if folder:
+        mp4_path = get_video_from_folder(folder)
+        if mp4_path:
+            return Response(stream_file_mp4_as_mjpeg(mp4_path), 
+                          mimetype='multipart/x-mixed-replace; boundary=frame')
+    
+    # Fallback to default output.mp4
+    return Response(get_frame(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-    return Response(get_frame(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-        
-        
+
+@app.route('/webcam')
+def webcam_page():
+    """Render webcam page with live inference and stop button."""
+    return render_template('webcam.html')
+
+
+@app.route('/webcam_feed')
+def webcam_feed():
+    """
+    Stream single webcam MJPEG feed with YOLO inference.
+    Accepts ?model=<model_name> parameter to select model.
+    """
+    model_name = request.args.get('model', 'yolov8n.pt')
+    return Response(get_webcam_frame(model_name), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/webcam_feed_dual')
+def webcam_feed_dual():
+    """
+    Stream dual webcam MJPEG feed with YOLO inference.
+    Accepts ?model0=<model_name> and ?model1=<model_name> parameters.
+    """
+    model0 = request.args.get('model0', 'yolov8n.pt')
+    model1 = request.args.get('model1', 'yolov8n.pt')
+    return Response(get_dual_webcam_frame(model0, model1), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Flask app exposing yolov9 models")
-    parser.add_argument("--port", default=5000, type=int, help="port number")
+    parser = argparse.ArgumentParser(description="Flask YOLO object detection web application")
+    parser.add_argument("--port", default=5000, type=int, help="Port number for Flask server")
     args = parser.parse_args()
-    model = YOLO('yolov9c.pt')
-    app.run(host="0.0.0.0", port=args.port) 
+    
+    # Preload default model into cache for faster first request
+    preload_default_model()
+    
+    app.run(host="0.0.0.0", port=args.port)
