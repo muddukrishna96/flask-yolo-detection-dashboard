@@ -6,6 +6,7 @@ Captures frames from one camera and yields MJPEG stream.
 import time
 import cv2
 from backend.model_manager import get_model
+from backend.image_video_processor import add_model_overlay
 
 
 def get_webcam_frame(model_name='yolov8n.pt'):
@@ -42,6 +43,8 @@ def get_webcam_frame(model_name='yolov8n.pt'):
                 try:
                     results = model(frame)
                     res_plotted = results[0].plot()
+                    # Add model overlay
+                    res_plotted = add_model_overlay(res_plotted, model_name)
                 except Exception:
                     res_plotted = frame
             else:

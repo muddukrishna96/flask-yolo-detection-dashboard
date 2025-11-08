@@ -7,6 +7,7 @@ import time
 import cv2
 import numpy as np
 from backend.model_manager import get_model
+from backend.image_video_processor import add_model_overlay
 
 
 def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
@@ -56,6 +57,8 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
                 try:
                     results0 = m0(frame0)
                     res_plotted0 = results0[0].plot()
+                    # Add stylish model overlay
+                    res_plotted0 = add_model_overlay(res_plotted0, model0)
                 except Exception:
                     res_plotted0 = frame0
             else:
@@ -66,6 +69,8 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
                 try:
                     results1 = m1(frame1)
                     res_plotted1 = results1[0].plot()
+                    # Add stylish model overlay
+                    res_plotted1 = add_model_overlay(res_plotted1, model1)
                 except Exception:
                     res_plotted1 = frame1
             else:
@@ -83,11 +88,11 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
                 aspect1 = height1 / width1
                 res_plotted1 = cv2.resize(res_plotted1, (target_width, int(target_width * aspect1)))
             
-            # Add model name overlays
-            cv2.putText(res_plotted0, f"Camera 0 - Model: {model0}", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(res_plotted1, f"Camera 1 - Model: {model1}", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            # Add camera labels at top left
+            cv2.putText(res_plotted0, "Camera 0", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(res_plotted1, "Camera 1", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             
             # Stack frames vertically
             combined_frame = np.vstack([res_plotted0, res_plotted1])
