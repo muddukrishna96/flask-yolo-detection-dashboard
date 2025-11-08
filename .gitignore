@@ -5,7 +5,7 @@
 *.engine
 models/*
 !models/.gitkeep
-backend\ARCHITECTURE.md
+backend/ARCHITECTURE.md
 
 # YOLO Detection Outputs
 runs/*
