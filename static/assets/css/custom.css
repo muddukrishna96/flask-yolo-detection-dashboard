@@ -165,3 +165,24 @@ body {
   .content-wrapper .card .card-body { padding: 10px; }
   #result-display, #video-display { height: auto; }
 }
+
+/* Tour prompt styling */
+#tour-prompt{ position: fixed; top: 72px; left: 50%; transform: translateX(-50%); z-index: 1050; }
+#tour-prompt .tour-prompt-inner{ background: rgba(255,255,255,0.98); border-radius:8px; padding:12px 14px; box-shadow:0 10px 30px rgba(20,20,40,0.12); display:flex; align-items:center; gap:10px; }
+#tour-prompt .tour-text{ font-weight:600; color:#222; margin-right:6px; }
+#tour-prompt .tour-actions .btn{ margin-left:6px; }
+
+/* Help button in header - make it more prominent */
+#tour-help-btn { margin-left: 12px; background: linear-gradient(90deg,var(--primary-blue), var(--accent-orange)); color: #fff; border: none; box-shadow: 0 8px 20px rgba(37,117,252,0.12); }
+#tour-help-btn:hover { transform: translateY(-2px); }
+
+/* Short-lived help-toast shown when tour has already been seen (gently remind) */
+#tour-toast { position: fixed; top: 18px; right: 18px; z-index: 1200; display: none; }
+#tour-toast .toast-inner { background: rgba(255,255,255,0.98); padding:10px 12px; border-radius:8px; box-shadow: 0 10px 30px rgba(20,20,40,0.12); display:flex; gap:8px; align-items:center; }
+#tour-toast .toast-inner .msg { font-weight:600; color:#222; }
+#tour-toast .toast-inner .actions .btn { margin-left:6px; }
+
+/* Hide Intro.js skip button shown in the top-right of tooltip boxes (we use our own prompt) */
+.introjs-skipbutton, .introjs-tooltipbuttons .introjs-skipbutton {
+  display: none !important;
+}

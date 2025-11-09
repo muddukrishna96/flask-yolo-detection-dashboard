@@ -24,6 +24,8 @@
   <link rel="stylesheet" href="/static/assets/css/adminlte.min.css">
   <!-- Custom overrides and color theme -->
   <link rel="stylesheet" href="/static/assets/css/custom.css">
+  <!-- Intro.js for guided tours -->
+  <link rel="stylesheet" href="https://unpkg.com/intro.js/minified/introjs.min.css">
   <!-- overlayScrollbars -->
   <link rel="stylesheet" href="/static/assets/plugins/overlayScrollbars/css/OverlayScrollbars.min.css">
   <!-- Daterange picker -->
@@ -46,6 +48,10 @@
           <div class="col-sm-6">
             <h1 class="m-0 text-dark">AI results Dashboard</h1>
           </div><!-- /.col -->
+          <div class="col-sm-6 text-right">
+            <!-- Persistent help button to start tour manually -->
+            <button id="tour-help-btn" class="btn btn-sm" title="Take a quick tour">Take Tour</button>
+          </div>
           <div class="col-sm-6">
             <ol class="breadcrumb float-sm-right">
               <li class="breadcrumb-item"><a href="index.html">Home</a></li>
@@ -56,6 +62,17 @@
       </div><!-- /.container-fluid -->
     </div>
     <!-- /.content-header -->
+
+    <!-- Small ephemeral toast to remind about the tour (shown if user previously saw tour) -->
+    <div id="tour-toast">
+      <div class="toast-inner">
+        <div class="msg">Need a quick tour?</div>
+        <div class="actions">
+          <button id="tour-toast-start" class="btn btn-sm btn-primary">Start</button>
+          <button id="tour-toast-dismiss" class="btn btn-sm btn-outline-secondary">Dismiss</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Main content -->
     <section class="content">
@@ -98,7 +115,7 @@
     {% endif %}
 
     <!-- Visible list of built-in models as radio buttons (not a dropdown) -->
-    <div class="mb-2" style="max-height:140px; overflow:auto; border:1px solid #eee; padding:6px;">
+  <div id="model-list" class="mb-2" style="max-height:140px; overflow:auto; border:1px solid #eee; padding:6px;">
       {% for m in models %}
       <div class="form-check" data-model="{{ m }}">
         <input class="form-check-input" type="radio" name="model" id="model_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
@@ -123,6 +140,17 @@
       <div class="form-check mt-2">
         <input class="form-check-input" type="checkbox" id="disclaimer_inline">
         <label class="form-check-label small" for="disclaimer_inline">I confirm I have rights to this model</label>
+      </div>
+    </div>
+
+    <!-- First-time tour prompt (shows only when localStorage flag not set) -->
+    <div id="tour-prompt" style="display:none;" role="dialog" aria-hidden="true">
+      <div class="tour-prompt-inner">
+        <div class="tour-text">Welcome! Would you like a quick tour of the dashboard?</div>
+        <div class="tour-actions">
+          <button id="tour-start" class="btn btn-sm btn-primary">Start Tour</button>
+          <button id="tour-skip" class="btn btn-sm btn-outline-secondary">Skip</button>
+        </div>
       </div>
     </div>
 
@@ -582,5 +610,89 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
   <script src="/static/assets/js/pages/dashboard.js"></script>
   <!-- AdminLTE for demo purposes -->
   <script src="/static/assets/js/demo.js"></script>
+  <!-- Intro.js library -->
+  <script src="https://unpkg.com/intro.js/minified/intro.min.js"></script>
+
+  <script>
+    // Guided tour: show prompt if user hasn't seen the tour or if forced by URL (?tour=1)
+    (function(){
+      function onReady(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+      onReady(function(){
+        try {
+          var seen = localStorage.getItem('dashboard_tour_seen');
+          var prompt = document.getElementById('tour-prompt');
+          var startBtn = document.getElementById('tour-start');
+          var skipBtn = document.getElementById('tour-skip');
+          var helpBtn = document.getElementById('tour-help-btn');
+          var toast = document.getElementById('tour-toast');
+          var toastStart = document.getElementById('tour-toast-start');
+          var toastDismiss = document.getElementById('tour-toast-dismiss');
+
+          // check URL param 'tour=1' to force display
+          var urlParams = new URLSearchParams(window.location.search);
+          var force = urlParams.get('tour') === '1';
+
+          if ((!seen && prompt) || force){
+            // show prompt after short delay
+            setTimeout(function(){ if (prompt) prompt.style.display = 'block'; }, 500);
+          } else if (seen && !localStorage.getItem('dashboard_tour_skipped')){
+            // user previously saw tour — show a gentle toast reminder for a short time
+            if (toast){ toast.style.display = 'block'; setTimeout(function(){ try{ toast.style.display='none'; }catch(e){} }, 15000); }
+          }
+
+          function markSeen(){ localStorage.setItem('dashboard_tour_seen', '1'); if (prompt) prompt.style.display='none'; }
+
+          function startTour(){
+            markSeen();
+            var candidateSteps = [
+              { selector: '#model-list', text: 'Step 1: Choose a model from the visible list or upload a custom .pt model.', position: 'bottom' },
+              { selector: '#model_file', text: 'You can upload a custom .pt model here (it is loaded into memory only).', position: 'bottom' },
+              { selector: '#input-image', text: 'Step 2: Select the input type: Image, Video, or Webcam.', position: 'bottom' },
+              { selector: '#file-input-area', text: 'If you selected Image or Video, pick a file here and press predict buttom.', position: 'bottom' },
+              { selector: '#webcam-options-area', text: 'If Webcam is selected, choose single or dual camera and per-camera models here.', position: 'bottom' },
+              { selector: '#start-webcam-inline', text: 'Start the webcam stream inline on the right side.', position: 'bottom' },
+              { selector: '#predict-btn', text: 'Click Detect to run the selected model on the uploaded file.', position: 'bottom' },
+              { selector: '#result-display', text: 'Results (images/videos/streams) show here on the right.', position: 'top' }
+            ];
+
+            var steps = [];
+            candidateSteps.forEach(function(s){
+              try {
+                var el = document.querySelector(s.selector);
+                // If element exists but is hidden (display:none), try to use a visible right-side container
+                var isVisible = el && el.offsetParent !== null && window.getComputedStyle(el).display !== 'none' && window.getComputedStyle(el).visibility !== 'hidden';
+                if (el && isVisible) {
+                  steps.push({ element: el, intro: s.text, position: s.position });
+                } else if (s.selector === '#result-display') {
+                  // prefer the right-result container as anchor for the results step
+                  var alt = document.querySelector('.right-result-container');
+                  if (alt) {
+                    steps.push({ element: alt, intro: s.text, position: 'left' });
+                  } else {
+                    steps.push({ intro: s.text });
+                  }
+                } else if (el && !isVisible) {
+                  // element present but hidden: show a center step instead so the user still sees guidance
+                  steps.push({ intro: s.text });
+                } else {
+                  // element not present: add a center step showing the text so the flow continues
+                  steps.push({ intro: s.text });
+                }
+              } catch(e){ steps.push({ intro: s.text }); }
+            });
+
+            // Hide the built-in skip button and label — we provide our own prompt controls
+            introJs().setOptions({ steps: steps, showProgress: true, exitOnOverlayClick: false, showBullets: false, nextLabel:'Next', prevLabel:'Back', doneLabel:'Done', skipLabel:'', showSkipButton: false }).start();
+          }
+
+          if (startBtn){ startBtn.addEventListener('click', startTour); }
+          if (skipBtn){ skipBtn.addEventListener('click', markSeen); }
+          if (helpBtn){ helpBtn.addEventListener('click', function(){ startTour(); }); }
+          if (toastStart){ toastStart.addEventListener('click', function(){ startTour(); if (toast) toast.style.display='none'; }); }
+          if (toastDismiss){ toastDismiss.addEventListener('click', function(){ if (toast) toast.style.display='none'; localStorage.setItem('dashboard_tour_skipped','1'); }); }
+        } catch (e){ console.warn('Tour init failed', e); }
+      });
+    })();
+  </script>
 
 {% endblock javascripts %}
