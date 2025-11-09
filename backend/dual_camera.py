@@ -94,8 +94,11 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
             cv2.putText(res_plotted1, "Camera 1", (10, 30), 
                        cv2.FONT_HERSHEY_DUPLEX, 0.7, (25, 255, 255), 2)
             
-            # Stack frames vertically
-            combined_frame = np.vstack([res_plotted0, res_plotted1])
+            # Stack frames vertically with a small gap between them for visual separation
+            gap = 10  # pixels between camera frames
+            # Create a separator row (light gray) matching the target width
+            separator = np.ones((gap, target_width, 3), dtype=np.uint8) * 245
+            combined_frame = np.vstack([res_plotted0, separator, res_plotted1])
             
             ret2, jpeg = cv2.imencode('.jpg', combined_frame)
             if not ret2:

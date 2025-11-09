@@ -105,7 +105,11 @@ body {
 #predict-btn.btn-danger { background: linear-gradient(90deg,var(--accent-orange), #ff6a2a); border:none; box-shadow: 0 10px 28px rgba(255,138,61,0.12); color: #fff; }
 
 /* Result area styling */
-#result-display, #video-display { background: #ffffff; border-radius:10px; box-shadow: 0 16px 38px rgba(20,20,40,0.06); border: 1px solid rgba(0,0,0,0.06); }
+#result-display, #video-display { background: #ffffff; border-radius:10px; box-shadow: 0 16px 38px rgba(20,20,40,0.06); border: 1px solid rgba(0,0,0,0.06); display: block; margin-left: auto; margin-right: auto; }
+
+/* Ensure stacked dual-camera image is centered within the right container and constrained */
+.right-result-container { display:flex; justify-content:center; align-items:center; }
+.right-result-container img { max-width:100%; height:auto; display:block; }
 
 /* Spinner colorize */
 .spinner-border { color: var(--accent-orange) !important; }
