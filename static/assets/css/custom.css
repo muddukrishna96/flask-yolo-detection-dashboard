@@ -108,7 +108,15 @@ body {
 #result-display, #video-display { background: #ffffff; border-radius:10px; box-shadow: 0 16px 38px rgba(20,20,40,0.06); border: 1px solid rgba(0,0,0,0.06); display: block; margin-left: auto; margin-right: auto; }
 
 /* Ensure stacked dual-camera image is centered within the right container and constrained */
-.right-result-container { display:flex; justify-content:center; align-items:center; }
+.right-result-container {
+  /* stack result elements vertically so the stop button stays below the image/stream
+     (prevents the button from appearing to the right of the image when using flex row) */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
 .right-result-container img { max-width:100%; height:auto; display:block; }
 
 /* Spinner colorize */
