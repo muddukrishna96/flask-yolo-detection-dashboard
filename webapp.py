@@ -6,10 +6,11 @@ Supports image, video, single webcam, and dual webcam processing.
 
 import argparse
 import os
+import tempfile
 from flask import Flask, render_template, request, url_for, Response, send_from_directory
 
 # Import backend processing modules
-from backend.model_manager import get_model, preload_default_model
+from backend.model_manager import get_model, preload_default_model, register_custom_model, list_models
 from backend.image_video_processor import (
     process_image, process_video, is_image_file, is_video_file
 )
@@ -28,7 +29,7 @@ os.makedirs(os.path.join(os.path.dirname(__file__), 'uploads'), exist_ok=True)
 @app.route("/")
 def hello_world():
     """Render main dashboard page."""
-    return render_template('index.html')
+    return render_template('index.html', models=list_models(), selected_model='yolov8n.pt')
 
     
 @app.route("/", methods=["GET", "POST"])
@@ -47,7 +48,7 @@ def predict_img():
             if f.filename == '':
                 message = "No file selected. Please choose an image or video file."
                 return render_template('index.html', image_url='', video_present=False, 
-                                     selected_model='yolov8n.pt', message=message)
+                                     selected_model='yolov8n.pt', message=message, models=list_models())
             
             # Validate file format BEFORE saving
             if not is_image_file(f.filename) and not is_video_file(f.filename):
@@ -55,7 +56,7 @@ def predict_img():
                           "<strong>Images:</strong> PNG, JPG, JPEG, BMP, GIF, WebP<br>"
                           "<strong>Videos:</strong> MP4, AVI, MOV, MKV, FLV, WMV")
                 return render_template('index.html', image_url='', video_present=False, 
-                                     selected_model='yolov8n.pt', message=message)
+                                     selected_model='yolov8n.pt', message=message, models=list_models())
             
             basepath = os.path.dirname(__file__)
             filepath = os.path.join(basepath, 'uploads', f.filename)
@@ -67,6 +68,14 @@ def predict_img():
             
             # Determine selected model from form
             model_name = request.form.get('model', 'yolov8n.pt')
+
+            # Validate that the selected model is available (either built-in or uploaded)
+            available = list_models()
+            if model_name not in available:
+                message = (f"Selected model '{model_name}' is not available. "
+                           "Please upload the model or choose one from the dropdown.")
+                return render_template('index.html', image_url='', video_present=False,
+                                       selected_model='yolov8n.pt', message=message, models=available)
             
             try:
                 # Check if it's an image file
@@ -74,13 +83,13 @@ def predict_img():
                     latest_subfolder, processed_filename = process_image(filepath, model_name)
                     image_url = url_for('display', folder=latest_subfolder, filename=processed_filename)
                     return render_template('index.html', image_url=image_url, video_present=False, 
-                                         selected_model=model_name)
+                                         selected_model=model_name, models=list_models())
                 
                 # Check if it's a video file
                 elif is_video_file(f.filename):
                     latest_subfolder = process_video(filepath, model_name)
                     return render_template('index.html', image_url='', video_present=True, 
-                                         video_folder=latest_subfolder, selected_model=model_name)
+                                         video_folder=latest_subfolder, selected_model=model_name, models=list_models())
             
             except Exception as e:
                 # Clean up uploaded file on error
@@ -89,10 +98,69 @@ def predict_img():
                     
                 message = f"Error processing file with model '{model_name}': {str(e)}"
                 return render_template('index.html', image_url='', video_present=False, 
-                                     selected_model=model_name, message=message)
+                                     selected_model=model_name, message=message, models=list_models())
     
     # Default GET response
-    return render_template('index.html', selected_model='yolov8n.pt')
+    return render_template('index.html', selected_model='yolov8n.pt', models=list_models())
+
+
+@app.route('/upload_model', methods=['POST'])
+def upload_model():
+    """
+    Upload a custom .pt model, load it temporarily, register in memory, and make it available for inference.
+    This writes the uploaded file to a secure temporary file only while loading and deletes it immediately.
+    """
+    if 'model_file' not in request.files:
+        return render_template('index.html', message='No model file provided.', models=list_models(), selected_model='yolov8n.pt')
+
+    f = request.files['model_file']
+    display_name = request.form.get('model_name') or f.filename
+    disclaimer = request.form.get('disclaimer')
+
+    # Require disclaimer checkbox
+    if not disclaimer:
+        return render_template('index.html', message='You must accept the disclaimer before uploading a model.', models=list_models(), selected_model='yolov8n.pt')
+
+    if f.filename == '':
+        return render_template('index.html', message='No file selected.', models=list_models(), selected_model='yolov8n.pt')
+
+    # Only accept .pt files for now
+    if '.' not in f.filename or f.filename.rsplit('.', 1)[1].lower() != 'pt':
+        return render_template('index.html', message='Only .pt model files are accepted.', models=list_models(), selected_model='yolov8n.pt')
+
+    # Enforce size limit (default 200MB)
+    data = f.read()
+    max_size = 200 * 1024 * 1024
+    if len(data) > max_size:
+        return render_template('index.html', message='Model file too large (max 200 MB).', models=list_models(), selected_model='yolov8n.pt')
+
+    tmp_path = None
+    try:
+        # Save to a secure temporary file while loading
+        with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            tmp_path = tmp.name
+
+        # Load with Ultralytics YOLO to ensure compatibility with pipeline
+        from ultralytics import YOLO
+        model_obj = YOLO(tmp_path)
+
+        # Register the model in memory under the provided display name
+        register_custom_model(display_name, model_obj)
+
+    except Exception as e:
+        return render_template('index.html', message=f'Failed to load model: {e}', models=list_models(), selected_model='yolov8n.pt')
+
+    finally:
+        # remove temporary file if it exists
+        try:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+    return render_template('index.html', message=f"Model '{display_name}' uploaded and registered.", models=list_models(), selected_model=display_name)
 
 
 @app.route('/display/<folder>/<path:filename>')

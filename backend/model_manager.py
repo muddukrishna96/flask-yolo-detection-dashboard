@@ -10,6 +10,9 @@ from ultralytics import YOLO
 # Model cache: stores loaded models by filename to avoid reloading
 model_cache = {}
 
+# Keep track of custom uploaded model names (registered at runtime)
+custom_model_names = set()
+
 # List of allowed models for security
 ALLOWED_MODELS = {
     'yolov8n.pt',
@@ -36,13 +39,13 @@ def get_model(model_name: str):
     if not model_name:
         return None
     
-    # Validate model name against whitelist
-    if model_name not in ALLOWED_MODELS:
-        raise ValueError(f'Model not allowed. Choose from: {ALLOWED_MODELS}')
-    
-    # Return cached model if already loaded
+    # Return cached model if already loaded (includes uploaded models)
     if model_name in model_cache:
         return model_cache[model_name]
+
+    # Validate model name against whitelist for built-in models
+    if model_name not in ALLOWED_MODELS:
+        raise ValueError(f'Model not allowed. Choose from built-ins or upload a custom model.')
 
     # Check for local models first to avoid re-downloading
     models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models')
@@ -61,6 +64,27 @@ def get_model(model_name: str):
     m = YOLO(model_to_load)
     model_cache[model_name] = m
     return m
+
+
+def register_custom_model(name: str, model_instance) -> None:
+    """
+    Register a custom-loaded model instance in memory so it can be selected by name.
+
+    Args:
+        name: Display name to register (will be used in dropdowns)
+        model_instance: Loaded model object (e.g., YOLO instance)
+    """
+    # Normalize name
+    display = name.strip()
+    model_cache[display] = model_instance
+    custom_model_names.add(display)
+
+
+def list_models():
+    """Return a sorted list of available model names (built-ins + uploaded)."""
+    built = sorted(list(ALLOWED_MODELS))
+    customs = sorted(list(custom_model_names))
+    return built + customs
 
 
 def preload_default_model():
