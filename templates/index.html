@@ -29,6 +29,20 @@
   <!-- summernote -->
   <link rel="stylesheet" href="/static/assets/plugins/summernote/summernote-bs4.min.css">
 
+  <style>
+    /* Keep action buttons visible inside the left panel */
+    .left-actions {
+      position: -webkit-sticky; /* Safari */
+      position: sticky;
+      bottom: 12px;
+      background: transparent;
+      z-index: 30;
+      padding-top: 8px;
+    }
+    /* Ensure the card body scrolls and the actions remain visible */
+    .card .card-body .chart { overflow: auto; }
+  </style>
+
 {% endblock stylesheets %}
 
 {% block content %}
@@ -83,165 +97,133 @@
                   <div class="chart tab-pane active" id="revenue-chart"
                         style="position: relative; height: 700px;">
             
-			<!-- AI code-->
-				 
-                   <form id="predict-form" class="form-signin col-lg-12" method=post enctype=multipart/form-data name="form1">
-       
-  <div style="max-width:100%; margin:auto; text-align:center; padding:12px 8px;">
-    <h4 class="h4 mb-3 font-weight-normal" style="line-height:1.4;">Upload any image or video and press Predict to view your result</h4>
+			<!-- AI code - LEFT PANEL VISIBLE WORKFLOW -->
+
+			<form id="predict-form" class="form-signin col-lg-12" method="post" enctype="multipart/form-data" name="form1">
+
+  <div style="max-width:100%; margin:auto; text-align:left; padding:12px 8px;">
+    <h4 class="h5 mb-2 font-weight-normal">1) Select Model</h4>
     {% if message %}
       <div class="alert alert-warning" role="alert" style="margin-top:8px;">{{ message }}</div>
     {% endif %}
-  </div>
-     <input type="file" name="file" class="form-control-file" id="inputfile" 
-            accept="image/png,image/jpeg,image/jpg,image/bmp,image/gif,image/webp,video/mp4,video/avi,video/x-msvideo,video/quicktime,video/x-matroska,video/x-flv,video/x-ms-wmv">
 
-        <br/>
-    <!-- Model selection -->
-    <div style="margin-bottom:8px;">
-      <label for="model-select" class="sr-only">Model</label>
-      <select id="model-select" name="model" class="form-control form-control-sm">
-        {% for m in models %}
-        <option value="{{ m }}" {% if selected_model==m %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
+    <!-- Visible list of built-in models as radio buttons (not a dropdown) -->
+    <div class="mb-2" style="max-height:140px; overflow:auto; border:1px solid #eee; padding:6px;">
+      {% for m in models %}
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="model" id="model_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
+        <label class="form-check-label small" for="model_{{ loop.index }}">{{ m }}</label>
+      </div>
+      {% endfor %}
     </div>
-		    
-  <button class="btn btn-block btn-default btn-sm " type="submit">Predict</button>
-  <button type="button" class="btn btn-block btn-primary btn-sm" id="webcam-btn" onclick="showWebcamModal();">Webcam</button>
-  <button type="button" class="btn btn-block btn-secondary btn-sm" id="upload-model-btn" onclick="$('#uploadModelModal').modal('show');">Upload Model</button>
-  <p class="mt-5 mb-3 text-muted"></p>
-    </form>
 
-<!-- Webcam Selection Modal -->
-<div class="modal fade" id="webcamModal" tabindex="-1" role="dialog" aria-labelledby="webcamModalLabel" aria-hidden="true">
-  <div class="modal-dialog" role="document">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="webcamModalLabel">Webcam Configuration</h5>
-        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-          <span aria-hidden="true">&times;</span>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label>Camera Mode:</label>
-          <select id="camera-mode-select" class="form-control" onchange="toggleDualCameraOptions()">
-            <option value="single">Single Camera</option>
-            <option value="dual">Multiple Cameras (2)</option>
-          </select>
+    <div class="mb-3 small text-muted">Or upload a custom .pt model (kept in memory only)</div>
+    <div style="border:1px dashed #ddd; padding:8px; border-radius:6px; margin-bottom:8px;">
+      <div class="form-row align-items-center">
+        <div class="col-6">
+          <input type="file" class="form-control-file" id="model_file" accept=".pt">
         </div>
-        
-        <!-- Single Camera Options -->
-        <div id="single-camera-options">
-          <div class="form-group">
-            <label>Camera 0 Model:</label>
-            <select id="single-model-select" class="form-control">
-              {% for m in models %}
-              <option value="{{ m }}">{{ m }}</option>
-              {% endfor %}
-            </select>
-          </div>
+        <div class="col-4">
+          <input type="text" class="form-control form-control-sm" id="model_name" placeholder="Display name (optional)">
         </div>
-        
-        <!-- Dual Camera Options -->
-        <div id="dual-camera-options" style="display:none;">
-          <div class="form-group">
-            <label>Camera 0 Model:</label>
-            <select id="dual-model0-select" class="form-control">
-              {% for m in models %}
-              <option value="{{ m }}">{{ m }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Camera 1 Model:</label>
-            <select id="dual-model1-select" class="form-control">
-              {% for m in models %}
-              <option value="{{ m }}">{{ m }}</option>
-              {% endfor %}
-            </select>
-          </div>
+        <div class="col-2">
+          <button type="button" id="upload-model-submit" class="btn btn-sm btn-primary">Upload</button>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="startSelectedWebcam()">Start Webcam</button>
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="disclaimer_inline">
+        <label class="form-check-label small" for="disclaimer_inline">I confirm I have rights to this model</label>
       </div>
     </div>
-  </div>
-</div>
 
-      <!-- Upload Model Modal -->
-      <div class="modal fade" id="uploadModelModal" tabindex="-1" role="dialog" aria-labelledby="uploadModelModalLabel" aria-hidden="true">
-        <div class="modal-dialog" role="document">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title" id="uploadModelModalLabel">Upload Custom .pt Model</h5>
-              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-              </button>
-            </div>
-            <form id="upload-model-form" action="/upload_model" method="post" enctype="multipart/form-data">
-            <div class="modal-body">
-              <div class="form-group">
-                <label for="model_file">Model file (.pt)</label>
-                <input type="file" class="form-control-file" id="model_file" name="model_file" accept=".pt" required>
-              </div>
-              <div class="form-group">
-                <label for="model_name">Display name (optional)</label>
-                <input type="text" class="form-control" id="model_name" name="model_name" placeholder="e.g. my_custom_yolo">
-              </div>
-              <div class="form-group form-check">
-                <input type="checkbox" class="form-check-input" id="disclaimer" name="disclaimer" required>
-                <label class="form-check-label" for="disclaimer">I confirm I have the rights to use and upload this model.</label>
-              </div>
-              <div class="small text-muted">Note: The model will be loaded into server memory temporarily for inference and will not be saved to disk persistently.</div>
-              <script>
-              // AJAX submit for upload model form to avoid full-page navigation and form collisions
-              document.getElementById('upload-model-form').addEventListener('submit', function(e) {
-                e.preventDefault();
-                var form = e.target;
-                var fd = new FormData(form);
+    <hr/>
 
-                // show a temporary message in the top alert area
-                var alertArea = document.querySelector('.alert');
-                if (!alertArea) {
-                  var container = document.createElement('div');
-                  container.className = 'alert alert-info';
-                  container.style.marginTop = '8px';
-                  container.textContent = 'Uploading model...';
-                  form.parentNode.insertBefore(container, form);
-                  alertArea = container;
-                } else {
-                  alertArea.className = 'alert alert-info';
-                  alertArea.textContent = 'Uploading model...';
-                }
+    <h4 class="h5 mb-2 font-weight-normal">2) Choose Input</h4>
+    <div class="mb-2">
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="radio" name="inputType" id="input-image" value="image">
+        <label class="form-check-label small" for="input-image">Image</label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="radio" name="inputType" id="input-video" value="video">
+        <label class="form-check-label small" for="input-video">Video</label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="radio" name="inputType" id="input-webcam" value="webcam">
+        <label class="form-check-label small" for="input-webcam">Webcam</label>
+      </div>
+    </div>
 
-                fetch('/upload_model', { method: 'POST', body: fd })
-                  .then(function(resp) { return resp.text(); })
-                  .then(function(text) {
-                    // replace the page body with server response to update model list, or simply reload
-                    // safer: reload the page so dropdowns are repopulated
-                    location.reload();
-                  })
-                  .catch(function(err) {
-                    if (alertArea) {
-                      alertArea.className = 'alert alert-danger';
-                      alertArea.textContent = 'Upload failed: ' + err;
-                    }
-                  });
-              });
-              </script>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Upload & Register</button>
-            </div>
-            </form>
+    <!-- File input (Image/Video) - visible but disabled until relevant option chosen -->
+    <div id="file-input-area" class="mb-2">
+      <input type="file" name="file" class="form-control-file" id="inputfile" disabled
+            accept="image/png,image/jpeg,image/jpg,image/bmp,image/gif,image/webp,video/mp4,video/avi,video/quicktime,video/x-matroska,video/x-flv,video/x-ms-wmv">
+    </div>
+
+    <!-- Webcam options - visible but controls disabled until Webcam selected -->
+    <div id="webcam-options-area" class="mb-2" style="border:1px solid #f1f1f1; padding:8px; border-radius:6px;">
+      <div class="form-group">
+        <label class="small">Camera mode</label>
+        <div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="camera_mode" id="camera-single" value="single" checked>
+            <label class="form-check-label small" for="camera-single">Single</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="camera_mode" id="camera-dual" value="dual">
+            <label class="form-check-label small" for="camera-dual">Dual</label>
           </div>
         </div>
       </div>
+
+      <div id="webcam-models-single" style="margin-bottom:6px;">
+        <div class="small text-muted">Camera 0 model</div>
+        <div style="max-height:100px; overflow:auto; border:1px solid #eee; padding:6px;">
+          {% for m in models %}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="single_model" id="single_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
+            <label class="form-check-label small" for="single_{{ loop.index }}">{{ m }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div id="webcam-models-dual" style="display:none;">
+        <div class="small text-muted">Camera 0 model</div>
+        <div style="max-height:80px; overflow:auto; border:1px solid #eee; padding:6px; margin-bottom:6px;">
+          {% for m in models %}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="dual_model0" id="d0_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
+            <label class="form-check-label small" for="d0_{{ loop.index }}">{{ m }}</label>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="small text-muted">Camera 1 model</div>
+        <div style="max-height:80px; overflow:auto; border:1px solid #eee; padding:6px;">
+          {% for m in models %}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="dual_model1" id="d1_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
+            <label class="form-check-label small" for="d1_{{ loop.index }}">{{ m }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      </div>
+      <!-- Sticky action bar so Start/Predict are always visible -->
+      <div class="left-actions">
+        <div class="d-flex flex-column">
+          <button type="button" id="start-webcam-inline" class="btn btn-primary btn-sm mb-2" disabled>Start Webcam</button>
+          <button class="btn btn-secondary btn-block" id="predict-btn" type="submit" disabled>Predict</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  </form>
+
+<!-- AI code - LEFT PANEL END -->
 
 	
 	
@@ -326,66 +308,90 @@ function showUploadedResult() {
 
 // Show webcam configuration modal
 function showWebcamModal() {
-  // Get currently selected model from main dropdown and pre-select it
-  var mainModelSelect = document.getElementById('model-select');
-  var selectedModel = mainModelSelect ? mainModelSelect.value : 'yolov8n.pt';
-  
-  // Set default selections in modal
-  document.getElementById('single-model-select').value = selectedModel;
-  document.getElementById('dual-model0-select').value = selectedModel;
-  document.getElementById('dual-model1-select').value = selectedModel;
-  
-  // Show the modal
-  $('#webcamModal').modal('show');
+  // For inline workflow: select webcam input and pre-select models from main selection (if any)
+  var sel = document.querySelector('input[name="model"]:checked');
+  var selectedModel = sel ? sel.value : 'yolov8n.pt';
+
+  // Pre-select single/dual model radios to the chosen model where possible
+  var singleRadio = document.querySelector('input[name="single_model"][value="' + selectedModel + '"]');
+  if (singleRadio) singleRadio.checked = true;
+  var d0 = document.querySelector('input[name="dual_model0"][value="' + selectedModel + '"]');
+  if (d0) d0.checked = true;
+  var d1 = document.querySelector('input[name="dual_model1"][value="' + selectedModel + '"]');
+  if (d1) d1.checked = true;
+
+  // Switch the inputType to webcam so webcam options become enabled
+  var wb = document.getElementById('input-webcam');
+  if (wb) { wb.checked = true; wb.dispatchEvent(new Event('change')); }
+
+  // Scroll to webcam area for visibility
+  var el = document.getElementById('webcam-options-area');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // Toggle dual camera options visibility
 function toggleDualCameraOptions() {
-  var mode = document.getElementById('camera-mode-select').value;
+  // Support legacy call and inline radio-driven mode.
+  var modeRadio = document.querySelector('input[name="camera_mode"]:checked');
+  var mode = modeRadio ? modeRadio.value : null;
+  if (!mode) {
+    // legacy fallback to select element
+    var sel = document.getElementById('camera-mode-select');
+    mode = sel ? sel.value : 'single';
+  }
   if (mode === 'single') {
-    document.getElementById('single-camera-options').style.display = 'block';
-    document.getElementById('dual-camera-options').style.display = 'none';
+    var s = document.getElementById('webcam-models-single'); if (s) s.style.display = 'block';
+    var d = document.getElementById('webcam-models-dual'); if (d) d.style.display = 'none';
   } else {
-    document.getElementById('single-camera-options').style.display = 'none';
-    document.getElementById('dual-camera-options').style.display = 'block';
+    var s2 = document.getElementById('webcam-models-single'); if (s2) s2.style.display = 'none';
+    var d2 = document.getElementById('webcam-models-dual'); if (d2) d2.style.display = 'block';
+  }
+  // Enable the Start Webcam button if webcam input is selected
+  var inputTypeWebcam = document.getElementById('input-webcam');
+  if (inputTypeWebcam && inputTypeWebcam.checked) {
+    var startBtn = document.getElementById('start-webcam-inline');
+    if (startBtn) {
+      startBtn.disabled = false;
+      // ensure the button is visible inside the left panel (scroll to it)
+      try { startBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){}
+      // give a small attention highlight
+      startBtn.style.boxShadow = '0 0 0.5rem rgba(220,53,69,0.25)';
+      setTimeout(function(){ startBtn.style.boxShadow = ''; }, 1200);
+    }
   }
 }
 
 // Start webcam based on selected configuration
 function startSelectedWebcam() {
-  var mode = document.getElementById('camera-mode-select').value;
+  // Read camera mode from radios (inline UI) or fallback to old select
+  var modeRadio = document.querySelector('input[name="camera_mode"]:checked');
+  var mode = modeRadio ? modeRadio.value : (document.getElementById('camera-mode-select') ? document.getElementById('camera-mode-select').value : 'single');
   var vimg = document.getElementById('video-display');
   var img = document.getElementById('result-display');
   var spinner = document.getElementById('result-spinner');
   var spinnerText = document.getElementById('spinner-text');
-  
-  // Hide modal
-  $('#webcamModal').modal('hide');
-  
-  // Show loading spinner immediately with webcam-specific message
-  img.style.display = 'none';
-  vimg.style.display = 'none';
+
+  // Do not rely on modal; just show spinner in the result area
+  if (img) img.style.display = 'none';
+  if (vimg) vimg.style.display = 'none';
   if (spinner) {
     spinner.style.display = 'block';
     if (spinnerText) {
-      if (mode === 'single') {
-        spinnerText.textContent = 'Initializing camera and loading model...';
-      } else {
-        spinnerText.textContent = 'Initializing cameras and loading models...';
-      }
+      spinnerText.textContent = mode === 'single' ? 'Initializing camera and loading model...' : 'Initializing cameras and loading models...';
     }
   }
-  
-  // Set up the webcam stream
+
+  // Set up the webcam stream URL based on selected inline radio models
   if (mode === 'single') {
-    // Single camera mode
-    var model = document.getElementById('single-model-select').value;
-    vimg.src = "{{ url_for('webcam_feed') }}?model=" + model;
+    var selModel = document.querySelector('input[name="single_model"]:checked');
+    var model = selModel ? selModel.value : 'yolov8n.pt';
+    vimg.src = "{{ url_for('webcam_feed') }}?model=" + encodeURIComponent(model);
   } else {
-    // Dual camera mode
-    var model0 = document.getElementById('dual-model0-select').value;
-    var model1 = document.getElementById('dual-model1-select').value;
-    vimg.src = "{{ url_for('webcam_feed_dual') }}?model0=" + model0 + "&model1=" + model1;
+    var m0 = document.querySelector('input[name="dual_model0"]:checked');
+    var m1 = document.querySelector('input[name="dual_model1"]:checked');
+    var model0 = m0 ? m0.value : 'yolov8n.pt';
+    var model1 = m1 ? m1.value : 'yolov8n.pt';
+    vimg.src = "{{ url_for('webcam_feed_dual') }}?model0=" + encodeURIComponent(model0) + "&model1=" + encodeURIComponent(model1);
   }
   
   // Show video display and hide spinner once stream starts loading
@@ -451,6 +457,72 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
   var spinner = document.getElementById('result-spinner');
   if (spinner) spinner.style.display = 'block';
 });
+
+// Inline UI wiring: enable/disable controls based on selections
+(function(){
+  // inputType radios
+  var inputRadios = document.querySelectorAll('input[name="inputType"]');
+  inputRadios.forEach(function(r){ r.addEventListener('change', function(){
+    var val = document.querySelector('input[name="inputType"]:checked').value;
+    if (val === 'image' || val === 'video'){
+      document.getElementById('inputfile').disabled = false;
+      document.getElementById('predict-btn').disabled = true; // enabled when file selected
+      document.getElementById('start-webcam-inline').disabled = true;
+    } else if (val === 'webcam'){
+      document.getElementById('inputfile').disabled = true;
+      document.getElementById('inputfile').value = '';
+      document.getElementById('predict-btn').disabled = true;
+      document.getElementById('start-webcam-inline').disabled = false;
+    }
+  }); });
+
+  // file input change -> enable Predict
+  var fileInput = document.getElementById('inputfile');
+    if (fileInput){
+    fileInput.addEventListener('change', function(){
+      var btn = document.getElementById('predict-btn');
+      if (this.files && this.files.length > 0){ 
+        btn.disabled = false; 
+        // Make the button visually prominent when enabled
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-danger');
+        btn.textContent = 'Detect';
+        // bring button into view
+        try { btn.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){}
+      }
+      else { 
+        btn.disabled = true; 
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-secondary');
+        btn.textContent = 'Predict';
+      }
+    });
+  }
+
+  // camera mode change -> show/hide dual panels
+  var camRadios = document.querySelectorAll('input[name="camera_mode"]');
+  camRadios.forEach(function(r){ r.addEventListener('change', function(){ toggleDualCameraOptions(); }); });
+
+  // Upload model button handler (AJAX)
+  var uploadBtn = document.getElementById('upload-model-submit');
+  if (uploadBtn){
+    uploadBtn.addEventListener('click', function(){
+      if(!document.getElementById('disclaimer_inline').checked){ alert('Please confirm you have the rights to upload this model.'); return; }
+      var file = document.getElementById('model_file');
+      if(!file || !file.files || file.files.length===0){ alert('Please select a .pt model file to upload.'); return; }
+      var fd = new FormData();
+      fd.append('model_file', file.files[0]);
+      fd.append('model_name', document.getElementById('model_name').value || '');
+      fd.append('disclaimer', document.getElementById('disclaimer_inline').checked ? 'on' : '');
+      uploadBtn.disabled = true; uploadBtn.textContent = 'Uploading...';
+      fetch('/upload_model', { method: 'POST', body: fd }).then(function(r){ return r.text(); }).then(function(){ location.reload(); }).catch(function(err){ alert('Upload failed: '+err); uploadBtn.disabled=false; uploadBtn.textContent='Upload'; });
+    });
+  }
+  // Wire Start Webcam inline button to existing startSelectedWebcam function
+  var startInline = document.getElementById('start-webcam-inline');
+  if (startInline) startInline.addEventListener('click', function(){ startSelectedWebcam(); });
+
+})();
 </script>
 
 

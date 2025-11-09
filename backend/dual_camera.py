@@ -90,9 +90,9 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
             
             # Add camera labels at top left
             cv2.putText(res_plotted0, "Camera 0", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                       cv2.FONT_HERSHEY_DUPLEX, 0.7, (25, 255, 255), 2)
             cv2.putText(res_plotted1, "Camera 1", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                       cv2.FONT_HERSHEY_DUPLEX, 0.7, (25, 255, 255), 2)
             
             # Stack frames vertically
             combined_frame = np.vstack([res_plotted0, res_plotted1])
