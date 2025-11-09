@@ -22,6 +22,8 @@
   <link rel="stylesheet" href="/static/assets/plugins/jqvmap/jqvmap.min.css">
   <!-- Theme style -->
   <link rel="stylesheet" href="/static/assets/css/adminlte.min.css">
+  <!-- Custom overrides and color theme -->
+  <link rel="stylesheet" href="/static/assets/css/custom.css">
   <!-- overlayScrollbars -->
   <link rel="stylesheet" href="/static/assets/plugins/overlayScrollbars/css/OverlayScrollbars.min.css">
   <!-- Daterange picker -->
@@ -29,19 +31,7 @@
   <!-- summernote -->
   <link rel="stylesheet" href="/static/assets/plugins/summernote/summernote-bs4.min.css">
 
-  <style>
-    /* Keep action buttons visible inside the left panel */
-    .left-actions {
-      position: -webkit-sticky; /* Safari */
-      position: sticky;
-      bottom: 12px;
-      background: transparent;
-      z-index: 30;
-      padding-top: 8px;
-    }
-    /* Ensure the card body scrolls and the actions remain visible */
-    .card .card-body .chart { overflow: auto; }
-  </style>
+  <!-- Custom styles are in static/assets/css/custom.css -->
 
 {% endblock stylesheets %}
 
@@ -110,9 +100,9 @@
     <!-- Visible list of built-in models as radio buttons (not a dropdown) -->
     <div class="mb-2" style="max-height:140px; overflow:auto; border:1px solid #eee; padding:6px;">
       {% for m in models %}
-      <div class="form-check">
+      <div class="form-check" data-model="{{ m }}">
         <input class="form-check-input" type="radio" name="model" id="model_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
-        <label class="form-check-label small" for="model_{{ loop.index }}">{{ m }}</label>
+        <label class="form-check-label small" for="model_{{ loop.index }}">{{ m }} <span class="model-badge">{{ m[:12] }}</span></label>
       </div>
       {% endfor %}
     </div>
@@ -180,9 +170,9 @@
         <div class="small text-muted">Camera 0 model</div>
         <div style="max-height:100px; overflow:auto; border:1px solid #eee; padding:6px;">
           {% for m in models %}
-          <div class="form-check">
+          <div class="form-check" data-model="{{ m }}">
             <input class="form-check-input" type="radio" name="single_model" id="single_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
-            <label class="form-check-label small" for="single_{{ loop.index }}">{{ m }}</label>
+            <label class="form-check-label small" for="single_{{ loop.index }}">{{ m }} <span class="model-badge">{{ m[:12] }}</span></label>
           </div>
           {% endfor %}
         </div>
@@ -192,18 +182,18 @@
         <div class="small text-muted">Camera 0 model</div>
         <div style="max-height:80px; overflow:auto; border:1px solid #eee; padding:6px; margin-bottom:6px;">
           {% for m in models %}
-          <div class="form-check">
+          <div class="form-check" data-model="{{ m }}">
             <input class="form-check-input" type="radio" name="dual_model0" id="d0_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
-            <label class="form-check-label small" for="d0_{{ loop.index }}">{{ m }}</label>
+            <label class="form-check-label small" for="d0_{{ loop.index }}">{{ m }} <span class="model-badge">{{ m[:12] }}</span></label>
           </div>
           {% endfor %}
         </div>
         <div class="small text-muted">Camera 1 model</div>
         <div style="max-height:80px; overflow:auto; border:1px solid #eee; padding:6px;">
           {% for m in models %}
-          <div class="form-check">
+          <div class="form-check" data-model="{{ m }}">
             <input class="form-check-input" type="radio" name="dual_model1" id="d1_{{ loop.index }}" value="{{ m }}" {% if selected_model==m %}checked{% endif %}>
-            <label class="form-check-label small" for="d1_{{ loop.index }}">{{ m }}</label>
+            <label class="form-check-label small" for="d1_{{ loop.index }}">{{ m }} <span class="model-badge">{{ m[:12] }}</span></label>
           </div>
           {% endfor %}
         </div>

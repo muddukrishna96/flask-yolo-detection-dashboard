@@ -1,0 +1,163 @@
+:root{
+  /* Three-tone palette: blue, orange, indigo */
+  --primary-blue: #2575fc; /* vivid blue (dominant) */
+  --accent-orange: #ff8a3d; /* warm orange (dominant) */
+  --accent-indigo: #5b3bd6; /* indigo (accent, used sparingly) */
+  --muted: #f4f6f9;
+  --card-bg: linear-gradient(135deg, var(--accent-indigo) 0%, var(--primary-blue) 100%);
+  --glass: rgba(255,255,255,0.92);
+}
+
+/* Page-level background: subtle blue -> soft orange gradient (keeps cards readable) */
+body {
+  background: linear-gradient(135deg, rgba(37,117,252,0.06) 0%, rgba(255,138,61,0.04) 40%, rgba(255,138,61,0.02) 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Keep the wrapper/content area transparent so the background shows through */
+.wrapper, .content-wrapper, .content {
+  background: transparent;
+}
+
+/* Left sidebar: distinct stronger gradient to differentiate from main area; future items will be grouped here */
+.main-sidebar {
+  background: linear-gradient(180deg, rgba(43,82,197,0.95) 0%, rgba(106,58,177,0.95) 100%);
+  color: #fff;
+  border-right: 1px solid rgba(255,255,255,0.04);
+}
+.main-sidebar .sidebar .nav-link { color: rgba(255,255,255,0.92); }
+.main-sidebar .sidebar .nav-link .nav-icon { color: rgba(255,255,255,0.78); }
+.main-sidebar .brand-link { background: transparent; }
+
+/* Make sure cards remain high-contrast and pop against the new background */
+.card { background: var(--glass); }
+.card .card-body { background: transparent; }
+
+/* Slight left column vignette to anchor controls visually */
+.content-wrapper::before{
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 320px; /* matches approximate left column width */
+  pointer-events: none;
+  background: radial-gradient(800px 400px at 40% 20%, rgba(37,117,252,0.06), transparent 30%);
+  mix-blend-mode: overlay;
+}
+
+/* Make the left card header colorful */
+.content-wrapper .card .card-header{
+  /* Stronger blue -> orange header to emphasize the two primary tones */
+  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--accent-orange) 100%);
+  color: white;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Slight glassy card body so components pop */
+.content-wrapper .card .card-body{
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(250,251,255,0.96) 100%);
+}
+
+/* Left panel specific tweaks */
+.form-signin { background: transparent; }
+.form-signin h4 { color: #222; }
+.form-check-label { color: #333; }
+
+/* Make the model list more vibrant */
+.form-check { padding: 6px 8px; border-radius:6px; transition: background 150ms, transform 120ms; display:flex; align-items:center; gap:12px; }
+.form-check:hover { background: rgba(37,117,252,0.04); transform: translateY(-1px); }
+.form-check-input:checked + .form-check-label, .form-check-label:hover { color: var(--primary-blue); font-weight:600; }
+
+/* Add spacing so model names are not cut off and are easier to read */
+.form-check-label { padding-left: 8px; padding-right: 8px; display: inline-block; word-break: break-word; max-width: calc(100% - 80px); }
+.form-check[data-model] .form-check-label { padding-left: 12px; }
+
+/* Fix for clipped radio inputs: ensure inputs are positioned statically and visible */
+.form-check-input {
+  position: relative !important; /* override any absolute positioning from theme */
+  left: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 12px !important;
+  flex: 0 0 auto;
+}
+
+/* Give model list entries a little extra left padding so radios are fully visible */
+.form-check[data-model] { padding-left: 14px; }
+
+/* Ensure the scrollable container doesn't clip child elements */
+.form-check + .form-check { margin-top: 2px; }
+
+/* File input area - subtle card */
+#file-input-area { background: #fff; border-radius:8px; padding:10px; box-shadow: 0 6px 18px rgba(20,20,40,0.03); }
+
+/* Webcam options area accent */
+#webcam-options-area { background: #fff; }
+
+/* Sticky actions style */
+.left-actions { text-align:center; }
+.left-actions .btn { border-radius: 8px; transition: transform 120ms ease, box-shadow 160ms ease, opacity 120ms ease; }
+.left-actions .btn:hover { transform: translateY(-3px); }
+#start-webcam-inline.btn-primary { background: linear-gradient(90deg,var(--primary-blue), #1e66e6); border: none; box-shadow: 0 10px 28px rgba(37,117,252,0.12); }
+#start-webcam-inline.btn-primary:disabled { opacity:0.6; }
+#predict-btn.btn-danger { background: linear-gradient(90deg,var(--accent-orange), #ff6a2a); border:none; box-shadow: 0 10px 28px rgba(255,138,61,0.12); color: #fff; }
+
+/* Result area styling */
+#result-display, #video-display { background: #ffffff; border-radius:10px; box-shadow: 0 16px 38px rgba(20,20,40,0.06); border: 1px solid rgba(0,0,0,0.06); }
+
+/* Spinner colorize */
+.spinner-border { color: var(--accent-orange) !important; }
+
+/* Model overlay tweaks (if overlay is injected via canvas/absolute) */
+.model-overlay { background: rgba(0,0,0,0.56); color: #fff; padding:8px 12px; border-radius: 8px; font-weight:700; box-shadow: 0 12px 26px rgba(0,0,0,0.18); }
+
+/* Right column subtle gradient background so results pop */
+.col-lg-6.connectedSortable > .card { background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,251,255,0.99)); }
+
+/* Make adminlte default cards slightly rounded and softer */
+.card { border-radius: 12px; }
+
+/* Radios and small controls should be touch-friendly */
+.form-check-input { width:1.2em; height:1.2em; }
+
+/* Navbar & Sidebar theming (AdminLTE selectors) */
+.main-header.navbar { background: linear-gradient(90deg, var(--primary-blue), var(--accent-orange)); border-bottom: 1px solid rgba(255,255,255,0.06); }
+.brand-link { background: linear-gradient(90deg, var(--primary-blue), var(--accent-orange)); color: #fff !important; }
+.nav-sidebar .nav-link.active { background: linear-gradient(90deg, rgba(37,117,252,0.14), rgba(255,138,61,0.08)); color: var(--primary-blue); border-radius:6px; }
+.nav-sidebar .nav-link:hover { background: rgba(37,117,252,0.04); color: var(--primary-blue); }
+
+/* Model badge next to model names */
+.model-badge { display: inline-block; margin-left:8px; padding:2px 8px; background: var(--accent-orange); color: white; border-radius: 999px; font-size: 11px; font-weight:700; vertical-align: middle; }
+
+/* Micro-interactions: hover, focus, transitions */
+.btn { transition: transform 150ms ease, box-shadow 160ms ease, background 180ms ease; }
+.btn:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.08); }
+.form-check-label { transition: color 120ms ease, font-weight 120ms ease; }
+
+/* Keep action buttons visible inside the left panel (moved from inline styles) */
+.left-actions {
+  position: -webkit-sticky; /* Safari */
+  position: sticky;
+  bottom: 12px;
+  background: transparent;
+  z-index: 30;
+  padding-top: 8px;
+}
+
+/* Ensure the card body scrolls and the actions remain visible (moved from inline styles) */
+.card .card-body .chart { overflow: auto; }
+
+/* Utility: gentle highlight animation for attention */
+@keyframes gentle-pulse { 0% { box-shadow: 0 0 0 rgba(0,0,0,0); } 50% { box-shadow: 0 6px 18px rgba(0,0,0,0.06);} 100% { box-shadow: 0 0 0 rgba(0,0,0,0);} }
+.attention { animation: gentle-pulse 1.2s ease-in-out; }
+
+/* Make links/buttons a little larger for usability */
+.btn { font-weight:600; }
+
+/* Responsive adjustments */
+@media (max-width: 768px){
+  .content-wrapper .card .card-body { padding: 10px; }
+  #result-display, #video-display { height: auto; }
+}
