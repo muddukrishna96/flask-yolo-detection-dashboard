@@ -194,3 +194,40 @@ body {
 .introjs-skipbutton, .introjs-tooltipbuttons .introjs-skipbutton {
   display: none !important;
 }
+
+/* Logo animations: gentle float (idle) + hover tilt+glow
+   - .logo-float provides a slow vertical float
+   - .logo-hover provides a tilt + glow on hover and pauses the float animation while hovered
+   Respect user's prefers-reduced-motion setting */
+@keyframes logo-float-vert {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0); }
+}
+.logo-float { animation: logo-float-vert 4s ease-in-out infinite; transform-origin: center; display:inline-block; }
+.logo-hover { display:inline-block; }
+
+/* Pop animation on hover: scale up slightly then return to original size */
+@keyframes logo-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+.logo-hover:hover { animation: logo-pop 420ms cubic-bezier(.2,.9,.3,1) both; }
+/* When hovering, pause the float animation to avoid conflicting transforms */
+.logo-float.logo-hover:hover { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-float { animation: none !important; }
+  .logo-hover { transition: none !important; }
+  .logo-hover:hover { transform: none !important; box-shadow: none !important; }
+}
+
+/* Remove flare/halo; keep the hover pop only. Respect reduced-motion below. */
+.brand-link.logo-hover { position: relative; overflow: visible; }
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-float { animation: none !important; }
+  .logo-hover { animation: none !important; transition: none !important; }
+  .logo-hover:hover { transform: none !important; }
+}
