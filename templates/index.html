@@ -299,9 +299,10 @@
 <script>
 // Show uploaded/processed image if provided by server
 // server-provided processed image URL (empty string if none)
-var server_image_url = "{{ image_url if image_url else '' }}";
-var server_video_present = "{{ 'true' if video_present else 'false' }}" === 'true';
-var server_video_folder = "{{ video_folder if video_folder else '' }}";
+var server_image_url = {{ (image_url if image_url else '')|tojson }};
+var server_video_present = {{ ('true' if video_present else 'false')|tojson }} === 'true';
+var server_video_folder = {{ (video_folder if video_folder else '')|tojson }};
+var server_video_stream_url = {{ (server_video_stream_url if server_video_stream_url else '')|tojson }};
 function showUploadedResult() {
   if (server_image_url) {
     var img = document.getElementById('result-display');
@@ -317,6 +318,15 @@ function showUploadedResult() {
     var vimg = document.getElementById('video-display');
     var feedUrl = "{{ url_for('video_feed') }}" + (server_video_folder ? "?folder=" + server_video_folder : "");
     vimg.src = feedUrl;
+    vimg.style.display = 'block';
+    document.getElementById('stop-btn').style.display = 'inline-block';
+    var spinner = document.getElementById('result-spinner');
+    if (spinner) spinner.style.display = 'none';
+  }
+  else if (server_video_stream_url) {
+    // Show server-processed MJPEG stream for uploaded video (per-frame processing)
+    var vimg = document.getElementById('video-display');
+    vimg.src = server_video_stream_url;
     vimg.style.display = 'block';
     document.getElementById('stop-btn').style.display = 'inline-block';
     var spinner = document.getElementById('result-spinner');

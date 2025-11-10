@@ -8,6 +8,8 @@ import argparse
 import os
 import tempfile
 from flask import Flask, render_template, request, url_for, Response, send_from_directory
+from werkzeug.utils import secure_filename
+import cv2
 
 # Import backend processing modules
 from backend.model_manager import get_model, preload_default_model, register_custom_model, list_models
@@ -59,12 +61,15 @@ def predict_img():
                                      selected_model='yolov8n.pt', message=message, models=list_models())
             
             basepath = os.path.dirname(__file__)
-            filepath = os.path.join(basepath, 'uploads', f.filename)
+            uploads_dir = os.path.join(basepath, 'uploads')
+            os.makedirs(uploads_dir, exist_ok=True)
+            safe_name = secure_filename(f.filename)
+            filepath = os.path.join(uploads_dir, safe_name)
             f.save(filepath)
-            
-            # Store filename globally for reference
+
+            # Store filename globally for reference (use secure name)
             global imgpath
-            predict_img.imgpath = f.filename
+            predict_img.imgpath = safe_name
             
             # Determine selected model from form
             model_name = request.form.get('model', 'yolov8n.pt')
@@ -87,9 +92,11 @@ def predict_img():
                 
                 # Check if it's a video file
                 elif is_video_file(f.filename):
-                    latest_subfolder = process_video(filepath, model_name)
-                    return render_template('index.html', image_url='', video_present=True, 
-                                         video_folder=latest_subfolder, selected_model=model_name, models=list_models())
+                    # For videos, stream processed frames as MJPEG so users see per-frame results
+                    # Use the secure filename we saved earlier
+                    stream_url = url_for('process_video_stream', filename=safe_name, model=model_name)
+                    return render_template('index.html', image_url='', video_present=False, 
+                                         server_video_stream_url=stream_url, selected_model=model_name, models=list_models())
             
             except Exception as e:
                 # Clean up uploaded file on error
@@ -136,31 +143,34 @@ def upload_model():
 
     tmp_path = None
     try:
-        # Save to a secure temporary file while loading
-        with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
-            tmp.write(data)
-            tmp.flush()
-            tmp_path = tmp.name
+        # Persist uploaded .pt into the repo models/ folder and register by filename
+        basepath = os.path.dirname(__file__)
+        models_dir = os.path.join(basepath, 'models')
+        os.makedirs(models_dir, exist_ok=True)
+        saved_name = secure_filename(f.filename)
+        saved_path = os.path.join(models_dir, saved_name)
+
+        # Write file to models/ (overwrite if present)
+        with open(saved_path, 'wb') as out_f:
+            out_f.write(data)
 
         # Load with Ultralytics YOLO to ensure compatibility with pipeline
         from ultralytics import YOLO
-        model_obj = YOLO(tmp_path)
+        model_obj = YOLO(saved_path)
 
-        # Register the model in memory under the provided display name
-        register_custom_model(display_name, model_obj)
+        # Register the model in memory under the saved filename (use filename as the selector)
+        register_custom_model(saved_name, model_obj)
 
     except Exception as e:
-        return render_template('index.html', message=f'Failed to load model: {e}', models=list_models(), selected_model='yolov8n.pt')
-
-    finally:
-        # remove temporary file if it exists
+        # If something failed, remove saved file if it exists
         try:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            if 'saved_path' in locals() and os.path.exists(saved_path):
+                os.remove(saved_path)
         except Exception:
             pass
+        return render_template('index.html', message=f'Failed to load model: {e}', models=list_models(), selected_model='yolov8n.pt')
 
-    return render_template('index.html', message=f"Model '{display_name}' uploaded and registered.", models=list_models(), selected_model=display_name)
+    return render_template('index.html', message=f"Model '{saved_name}' uploaded and registered.", models=list_models(), selected_model=saved_name)
 
 
 @app.route('/display/<folder>/<path:filename>')
@@ -180,6 +190,155 @@ def display(folder, filename):
     if not os.path.isdir(directory):
         return "Not found", 404
     return send_from_directory(directory, filename)
+
+
+@app.route('/process_video_stream')
+def process_video_stream():
+    """
+    Process an uploaded video file frame-by-frame and stream processed frames as MJPEG.
+    Query params:
+      - filename: name of file inside uploads/ (secure_filename recommended)
+      - model: model name to use
+    """
+    filename = request.args.get('filename')
+    model_name = request.args.get('model', 'yolov8n.pt')
+    if model_name:
+        model_name = model_name.strip()
+    if not filename:
+        return "Missing filename", 400
+
+    uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
+    filepath = os.path.join(uploads_dir, filename)
+    if not os.path.exists(filepath):
+        return "File not found", 404
+
+    # Extra debug output to trace incoming request parameters
+    try:
+        print('\n--- process_video_stream START ---')
+        print('Request URL:', request.url)
+        print('Query string raw:', request.query_string)
+        print('request.args:', dict(request.args))
+        try:
+            from backend import model_manager
+            print('model_manager.model_cache keys:', list(model_manager.model_cache.keys()))
+        except Exception:
+            pass
+        print('Available models (list_models):', list_models())
+        print('-------------------------------\n')
+    except Exception:
+        pass
+
+    # Resolve the requested model BEFORE starting the stream. If the requested model is not available,
+    # return a clear error so the user can pick a different model.
+    resolved_model = None
+    resolved_model_name = None
+    try:
+        # Try to resolve via get_model (handles built-ins and registered custom models)
+        try:
+            resolved_model = get_model(model_name)
+            resolved_model_name = model_name
+            print(f'Using model (get_model): {model_name}')
+        except Exception as e:
+            print(f'get_model failed for "{model_name}": {e}')
+            try:
+                from backend import model_manager
+                if model_name in model_manager.model_cache:
+                    resolved_model = model_manager.model_cache[model_name]
+                    resolved_model_name = model_name
+                    print(f'Using model from model_cache: {model_name}')
+            except Exception:
+                pass
+
+        # Try loading a local model file from models/
+        if resolved_model is None:
+            models_dir = os.path.join(os.path.dirname(__file__), 'models')
+            candidate = os.path.join(models_dir, model_name)
+            if os.path.isfile(candidate):
+                try:
+                    from ultralytics import YOLO as _YOLO
+                    resolved_model = _YOLO(candidate)
+                    resolved_model_name = os.path.basename(candidate)
+                    print(f'Loaded local model file: {candidate}')
+                except Exception as e:
+                    print('local model load failed:', e)
+
+        if resolved_model is None:
+            available = []
+            try:
+                from backend import model_manager
+                available = list(model_manager.model_cache.keys())
+            except Exception:
+                pass
+            msg = f"Requested model '{model_name}' not available on server. Available: {available}"
+            print(msg)
+            return (msg, 400)
+    except Exception as e:
+        print('model resolution unexpected error:', e)
+        return (f"Model resolution error: {e}", 500)
+
+    def generate():
+        try:
+            cap = cv2.VideoCapture(filepath)
+            # Debug info: log incoming model and available cached models
+            try:
+                from backend import model_manager
+                print('process_video_stream request -> filename:', filename, 'model:', model_name)
+                print('model_cache keys:', list(model_manager.model_cache.keys()))
+                models_dir = os.path.join(os.path.dirname(__file__), 'models')
+                if os.path.isdir(models_dir):
+                    print('models/ dir contents:', os.listdir(models_dir))
+            except Exception:
+                pass
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # Run inference on the frame using the resolved model
+                try:
+                    results = resolved_model(frame)
+                    res_plotted = results[0].plot()
+                except Exception as e:
+                    print('inference error:', e)
+                    res_plotted = frame
+
+                # Optionally add model overlay using image_video_processor.add_model_overlay if available
+                try:
+                    from backend.image_video_processor import add_model_overlay
+                    res_plotted = add_model_overlay(res_plotted, model_name)
+                except Exception:
+                    pass
+
+                # Add a small debug label showing which model was actually used
+                try:
+                    label = resolved_model_name if resolved_model_name else ('unknown')
+                    cv2.putText(res_plotted, f'Model used: {label}', (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                except Exception:
+                    pass
+
+                # Encode as JPEG and yield as MJPEG frame
+                ret2, jpeg = cv2.imencode('.jpg', res_plotted, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if not ret2:
+                    continue
+                frame_bytes = jpeg.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        except GeneratorExit:
+            # client disconnected
+            pass
+        except Exception as e:
+            try:
+                print('process_video_stream error:', e)
+            except Exception:
+                pass
+        finally:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route("/video_feed")
