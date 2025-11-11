@@ -371,7 +371,8 @@ def webcam_feed():
     Accepts ?model=<model_name> parameter to select model.
     """
     model_name = request.args.get('model', 'yolov8n.pt')
-    return Response(get_webcam_frame(model_name), mimetype='multipart/x-mixed-replace; boundary=frame')
+    cam = int(request.args.get('cam', 0)) if request.args.get('cam') is not None else 0
+    return Response(get_webcam_frame(model_name, camera_index=cam), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/webcam_feed_dual')
@@ -383,6 +384,41 @@ def webcam_feed_dual():
     model0 = request.args.get('model0', 'yolov8n.pt')
     model1 = request.args.get('model1', 'yolov8n.pt')
     return Response(get_dual_webcam_frame(model0, model1), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/webcam_feed_split')
+def webcam_feed_split():
+    """
+    Stream single-camera feed processed by two different models and combined vertically.
+    Accepts query params: ?model0=<m0>&model1=<m1>
+    """
+    model0 = request.args.get('model0', 'yolov8n.pt')
+    model1 = request.args.get('model1', 'yolov8n.pt')
+    cam = int(request.args.get('cam', 0)) if request.args.get('cam') is not None else 0
+    # Lazy import of the split generator from single_camera
+    from backend.single_camera import get_split_webcam_frame
+    return Response(get_split_webcam_frame(model0, model1, camera_index=cam), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/list_cameras')
+def list_cameras():
+    """Return a JSON list of indices for cameras that can be opened (probes 0..4)."""
+    import json
+    found = []
+    for i in range(0, 5):
+        try:
+            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if cap is not None and cap.isOpened():
+                found.append(i)
+                cap.release()
+            else:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return Response(json.dumps({'cameras': found}), mimetype='application/json')
 
 
 if __name__ == "__main__":

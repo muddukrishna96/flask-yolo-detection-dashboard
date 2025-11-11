@@ -191,6 +191,10 @@
             <input class="form-check-input" type="radio" name="camera_mode" id="camera-dual" value="dual">
             <label class="form-check-label small" for="camera-dual">Dual</label>
           </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="single_split_mode" />
+            <label class="form-check-label small" for="single_split_mode">Process single camera with two models (stacked)</label>
+          </div>
         </div>
       </div>
 
@@ -224,6 +228,25 @@
             <label class="form-check-label small" for="d1_{{ loop.index }}">{{ m }} <span class="model-badge">{{ m[:12] }}</span></label>
           </div>
           {% endfor %}
+        </div>
+      </div>
+
+      <!-- Camera index selection modal (used when multiple cameras detected) -->
+      <div id="camera-index-modal" class="modal" tabindex="-1" role="dialog" style="display:none;">
+        <div class="modal-dialog" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Select Camera</h5>
+            </div>
+            <div class="modal-body" id="camera-index-body">
+              <p>Multiple cameras detected. Choose which camera to use:</p>
+              <div id="camera-index-list"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="camera-index-choose" class="btn btn-primary">Use selected</button>
+              <button type="button" id="camera-index-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -360,6 +383,10 @@ function showWebcamModal() {
 // Toggle dual camera options visibility
 function toggleDualCameraOptions() {
   // Support legacy call and inline radio-driven mode.
+  // If the user enabled the single-split checkbox, prefer showing the dual-model panels
+  var splitCheckbox = document.getElementById('single_split_mode');
+  var splitEnabled = splitCheckbox && splitCheckbox.checked;
+
   var modeRadio = document.querySelector('input[name="camera_mode"]:checked');
   var mode = modeRadio ? modeRadio.value : null;
   if (!mode) {
@@ -367,6 +394,14 @@ function toggleDualCameraOptions() {
     var sel = document.getElementById('camera-mode-select');
     mode = sel ? sel.value : 'single';
   }
+
+  if (splitEnabled) {
+    // Show dual-model selectors so user can pick two models for the stacked single-camera view
+    var s_hide = document.getElementById('webcam-models-single'); if (s_hide) s_hide.style.display = 'none';
+    var d_show = document.getElementById('webcam-models-dual'); if (d_show) d_show.style.display = 'block';
+    return;
+  }
+
   if (mode === 'single') {
     var s = document.getElementById('webcam-models-single'); if (s) s.style.display = 'block';
     var d = document.getElementById('webcam-models-dual'); if (d) d.style.display = 'none';
@@ -409,11 +444,61 @@ function startSelectedWebcam() {
     }
   }
 
+  // Helper to choose camera index then start stream
+  function chooseCameraAndStart(startFn) {
+    fetch('{{ url_for("list_cameras") }}').then(function(r){ return r.json(); }).then(function(data){
+      var cams = (data && data.cameras) ? data.cameras : [];
+      if (cams.length > 1) {
+        // show modal to pick index
+        var list = document.getElementById('camera-index-list');
+        list.innerHTML = '';
+        cams.forEach(function(ci){
+          var id = 'cam_radio_' + ci;
+          var div = document.createElement('div');
+          div.className = 'form-check';
+          div.innerHTML = '<input class="form-check-input" type="radio" name="cam_index" id="'+id+'" value="'+ci+'">'
+                        + '<label class="form-check-label small" for="'+id+'">Camera '+ci+'</label>';
+          list.appendChild(div);
+        });
+        // pre-select first
+        var first = list.querySelector('input[name="cam_index"]'); if (first) first.checked = true;
+        var modal = document.getElementById('camera-index-modal');
+        modal.style.display = 'block';
+        document.getElementById('camera-index-choose').onclick = function(){
+          var sel = document.querySelector('input[name="cam_index"]:checked');
+          var idx = sel ? sel.value : cams[0];
+          modal.style.display = 'none';
+          startFn(parseInt(idx,10));
+        };
+        document.getElementById('camera-index-cancel').onclick = function(){ modal.style.display = 'none'; };
+      } else {
+        // single or none -> default to 0 or detected
+        var idx = cams.length === 1 ? cams[0] : 0;
+        startFn(idx);
+      }
+    }).catch(function(){ startFn(0); });
+  }
+
   // Set up the webcam stream URL based on selected inline radio models
   if (mode === 'single') {
-    var selModel = document.querySelector('input[name="single_model"]:checked');
-    var model = selModel ? selModel.value : 'yolov8n.pt';
-    vimg.src = "{{ url_for('webcam_feed') }}?model=" + encodeURIComponent(model);
+    // Check if user wants to process the single camera with two models (stacked)
+    var singleSplitCheckbox = document.getElementById('single_split_mode');
+    var isSplit = singleSplitCheckbox && singleSplitCheckbox.checked;
+    if (isSplit) {
+      var m0 = document.querySelector('input[name="dual_model0"]:checked');
+      var m1 = document.querySelector('input[name="dual_model1"]:checked');
+      var model0 = m0 ? m0.value : 'yolov8n.pt';
+      var model1 = m1 ? m1.value : 'yolov8n.pt';
+      chooseCameraAndStart(function(camIndex){
+        vimg.src = "{{ url_for('webcam_feed_split') }}?model0=" + encodeURIComponent(model0) + "&model1=" + encodeURIComponent(model1) + "&cam=" + encodeURIComponent(camIndex);
+      });
+    } else {
+      var selModel = document.querySelector('input[name="single_model"]:checked');
+      var model = selModel ? selModel.value : 'yolov8n.pt';
+      chooseCameraAndStart(function(camIndex){
+        vimg.src = "{{ url_for('webcam_feed') }}?model=" + encodeURIComponent(model) + "&cam=" + encodeURIComponent(camIndex);
+      });
+    }
   } else {
     var m0 = document.querySelector('input[name="dual_model0"]:checked');
     var m1 = document.querySelector('input[name="dual_model1"]:checked');
@@ -530,6 +615,37 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
   // camera mode change -> show/hide dual panels
   var camRadios = document.querySelectorAll('input[name="camera_mode"]');
   camRadios.forEach(function(r){ r.addEventListener('change', function(){ toggleDualCameraOptions(); }); });
+
+  // When user toggles the single-split checkbox, show the dual-model selectors so they can pick two models
+  var splitCheckbox = document.getElementById('single_split_mode');
+  if (splitCheckbox) {
+    splitCheckbox.addEventListener('change', function(){
+      var dual = document.getElementById('webcam-models-dual');
+      var single = document.getElementById('webcam-models-single');
+      if (this.checked) {
+        if (dual) dual.style.display = 'block';
+        if (single) single.style.display = 'none';
+        // ensure at least one radio is checked for both dual_model0 and dual_model1
+        var a = document.querySelector('input[name="dual_model0"]:checked');
+        if (!a) { var first = document.querySelector('input[name="dual_model0"]'); if (first) first.checked = true; }
+        var b = document.querySelector('input[name="dual_model1"]:checked');
+        if (!b) { var first2 = document.querySelector('input[name="dual_model1"]'); if (first2) first2.checked = true; }
+      } else {
+        if (dual) dual.style.display = 'none';
+        if (single) single.style.display = 'block';
+      }
+    });
+  }
+
+  // single-split checkbox -> show dual-model selectors even when camera mode is single
+  var singleSplit = document.getElementById('single_split_mode');
+  if (singleSplit) {
+    singleSplit.addEventListener('change', function(){
+      // When enabling split mode, ensure webcam input is selected so Start Webcam is available
+      try { document.getElementById('input-webcam').checked = true; } catch(e){}
+      toggleDualCameraOptions();
+    });
+  }
 
   // Upload model button handler (AJAX)
   var uploadBtn = document.getElementById('upload-model-submit');
