@@ -26,27 +26,45 @@
       <!-- Sidebar Menu -->
       <nav class="mt-2">
         <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="false">
-          <!-- Add icons to the links using the .nav-icon class
-               with font-awesome or any other icon font library -->
-          <li class="nav-item has-treeview {% if 'index' in segment %} menu-open {% endif %}">
-            <a href="#" class="nav-link {% if 'index' in segment %} active {% endif %}">
-              <i class="nav-icon fas fa-tachometer-alt"></i>
+          <!-- Add icons to the links using the .nav-icon class -->
+
+
+          <!-- Tasks menu -->
+          <li class="nav-item has-treeview">
+            <a href="#" class="nav-link">
+              <i class="nav-icon fas fa-tasks"></i>
               <p>
-                Dashboard
+                Tasks
                 <i class="right fas fa-angle-left"></i>
               </p>
             </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.html" class="nav-link {% if 'index.html' in segment %} active {% endif %}">
-                  <i class="far fa-circle nav-icon"></i>
-                  <p>Image Detection Results</p>
-                </a>
+            <ul class="nav nav-treeview" id="tasks-menu" style="display:block;">
+              <li class="nav-item px-3 pt-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-detection" value="detection">
+                  <label class="form-check-label" for="task-detection">Object detection</label>
+                </div>
               </li>
-			  
-	
-
-        </ul>
+              <li class="nav-item px-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-segmentation" value="segmentation">
+                  <label class="form-check-label" for="task-segmentation">Segmentation</label>
+                </div>
+              </li>
+              <li class="nav-item px-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-pose" value="pose">
+                  <label class="form-check-label" for="task-pose">Pose detection</label>
+                </div>
+              </li>
+              <li class="nav-item px-3 pb-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-classification" value="classification">
+                  <label class="form-check-label" for="task-classification">Classification</label>
+                </div>
+              </li>
+            </ul>
+          </li>
       </nav>
       <!-- /.sidebar-menu -->
     </div>

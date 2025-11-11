@@ -41,6 +41,29 @@
   
   <div class="content-wrapper">
 
+    <!-- Home view: shown on initial load -->
+    <div id="home-view" style="display:block; padding:60px 0; text-align:center;">
+      <img src="/static/assets/logo.png" alt="Logo" style="width:320px; max-width:80%; height:auto; display:block; margin:0 auto 18px;">
+      <h2 style="font-weight:600; color:#333;">Welcome to the AI Dashboard</h2>
+      <p class="text-muted">Select a task from the sidebar to get started.</p>
+    </div>
+
+    <!-- Detection dashboard: hidden until user selects Object detection task -->
+    <div id="detection-dashboard" style="display:none;">
+
+      <!-- Message shown when a selected task is not yet implemented -->
+      <div id="task-unavailable" style="display:none; padding:60px 0; text-align:center;">
+        <div class="card mx-auto" style="max-width:720px;">
+          <div class="card-body">
+            <h4 class="card-title">Feature coming soon</h4>
+            <p class="card-text">The <strong id="unavailable-task-name">selected</strong> feature is under development and will be available in a future release. For now, only the Object detection dashboard is available.</p>
+            <button id="unavailable-ok" class="btn btn-primary">OK</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="detection-content">
+
     <!-- Content Header (Page header) -->
     <div class="content-header">
       <div class="container-fluid">
@@ -250,6 +273,35 @@
         </div>
       </div>
 
+          <!-- Contact modal -->
+          <div id="contact-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+            <div class="modal-dialog modal-sm" role="document">
+              <div class="modal-content">
+                <div class="modal-header d-flex align-items-center">
+                  <img src="/static/assets/photo.jpg" alt="Photo" style="width:64px; height:64px; object-fit:cover; margin-right:12px;" class="rounded-circle">
+                  <div style="flex:1 1 auto;">
+                    <h5 class="modal-title mb-0">muddu krishna galavalli</h5>
+                    <small class="text-muted">AI / Computer Vision</small>
+                  </div>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                </div>
+                <div class="modal-body">
+                  <p><strong>Phone:</strong> <a href="tel:+49 15906133210">+49 15906133210</a></p>
+                  <p class="mb-1"><strong>Links:</strong></p>
+                  <p>
+                    <a href="https://www.linkedin.com/in/galavalli-muddu-krishna-bb87ba112/" target="_blank" rel="noopener" class="mr-2"><i class="fab fa-linkedin fa-lg"></i> LinkedIn</a>
+                    <a href="https://github.com/muddukrishna96?tab=repositories" target="_blank" rel="noopener"><i class="fab fa-github fa-lg"></i> GitHub</a>
+                  </p>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
       </div>
       <!-- Sticky action bar so Start/Predict are always visible -->
       <div class="left-actions">
@@ -260,9 +312,7 @@
       </div>
     </div>
 
-  </div>
-
-  </form>
+  
 
 <!-- AI code - LEFT PANEL END -->
 
@@ -315,7 +365,7 @@
     <div id="spinner-text" style="margin-top:8px; font-weight:500;">Processing, please wait...</div>
   </div>
   <div style="margin-top:8px; text-align:center;">
-    <button id="stop-btn" class="btn btn-danger btn-sm" style="display:none;">Close</button>
+    <button type="button" id="stop-btn" class="btn btn-danger btn-sm" style="display:none;">Close</button>
   </div>
 </div>
 
@@ -549,14 +599,91 @@ function stopStream() {
 }
 
 document.getElementById('stop-btn').addEventListener('click', function(e){
+  // Prevent default (in case button resides in a form) so it doesn't submit and reload the page
+  try { e.preventDefault(); } catch(err){}
+  // Close button: only stop the stream / clear outputs. Do not navigate to Home.
   stopStream();
-  // Optionally navigate back to top/home
-  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 // If the server provided a processed image path, show it on load
 window.addEventListener('load', function(){
   showUploadedResult();
+  // If server returned a processed result, show the Detection dashboard so the user sees results immediately.
+  try {
+    var hasImage = (typeof server_image_url !== 'undefined' && server_image_url);
+    var hasVideo = (typeof server_video_present !== 'undefined' && server_video_present === true);
+    var hasStream = (typeof server_video_stream_url !== 'undefined' && server_video_stream_url);
+    if (hasImage || hasVideo || hasStream) {
+      showDetectionView();
+    } else {
+      showHomeView();
+    }
+  } catch(e) { try { showHomeView(); } catch(err){} }
+});
+
+// Navigation and Tasks wiring: show/hide home and detection views
+function showHomeView(){
+  var home = document.getElementById('home-view');
+  var det = document.getElementById('detection-dashboard');
+  if (home) home.style.display = 'block';
+  if (det) det.style.display = 'none';
+}
+
+function showDetectionView(){
+  var home = document.getElementById('home-view');
+  var det = document.getElementById('detection-dashboard');
+  if (home) home.style.display = 'none';
+  if (det) det.style.display = 'block';
+  // scroll to top of detection area
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+}
+
+function showUnavailable(task){
+  var home = document.getElementById('home-view');
+  var det = document.getElementById('detection-dashboard');
+  var content = document.getElementById('detection-content');
+  var ua = document.getElementById('task-unavailable');
+  if (home) home.style.display = 'none';
+  if (det) det.style.display = 'block';
+  if (content) content.style.display = 'none';
+  if (ua) {
+    var name = task || '';
+    var label = document.getElementById('unavailable-task-name');
+    if (label) label.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    ua.style.display = 'block';
+  }
+}
+
+function hideUnavailable(){
+  var content = document.getElementById('detection-content');
+  var ua = document.getElementById('task-unavailable');
+  if (ua) ua.style.display = 'none';
+  if (content) content.style.display = 'block';
+}
+
+// Wire nav links and task radio buttons after DOM is ready
+document.addEventListener('DOMContentLoaded', function(){
+  var homeLink = document.getElementById('nav-home');
+  var contactLink = document.getElementById('nav-contact');
+  if (homeLink) homeLink.addEventListener('click', function(e){ e.preventDefault(); showHomeView(); });
+  if (contactLink) contactLink.addEventListener('click', function(e){ e.preventDefault(); $('#contact-modal').modal('show'); });
+
+  // Task radio selection: show detection dashboard when object detection selected
+    var taskRadios = document.querySelectorAll('input[name="taskOption"]');
+    taskRadios.forEach(function(r){ r.addEventListener('change', function(){
+        if (!this.checked) return;
+        if (this.value === 'detection') {
+          hideUnavailable();
+          showDetectionView();
+        } else {
+          // show unavailable message for other tasks
+          showUnavailable(this.value);
+        }
+    }); });
+
+    // Wire unavailable OK button
+    var okBtn = document.getElementById('unavailable-ok');
+    if (okBtn) okBtn.addEventListener('click', function(){ hideUnavailable(); showHomeView(); });
 });
 
 // Show spinner when user submits the predict form
@@ -689,7 +816,10 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
           <!-- right col (We are only adding the ID to make the widgets sortable)-->
 
           <!-- right col -->
-        </div>
+  </div>
+  </div> <!-- /#detection-content -->
+  </div>
+  </div> <!-- /#detection-dashboard -->
         <!-- /.row (main row) -->
       </div><!-- /.container-fluid -->
     </section>
