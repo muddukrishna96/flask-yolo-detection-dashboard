@@ -13,12 +13,13 @@ model_cache = {}
 # Keep track of custom uploaded model names (registered at runtime)
 custom_model_names = set()
 
-# List of allowed models for security
+# List of allowed models for security (updated per user request)
 ALLOWED_MODELS = {
     'yolov8n.pt',
-    'yolov8s.pt',
-    'yolov8m.pt',
-    'yolov9s.pt',
+    'yolov9t.pt',
+    'yolov10n.pt',
+    'yolo11n.pt',
+    'yolo12n.pt',
     'yolov8n-oiv7.pt'
 }
 
