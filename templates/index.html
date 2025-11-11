@@ -663,15 +663,19 @@ window.addEventListener('load', function(){
 function showHomeView(){
   var home = document.getElementById('home-view');
   var det = document.getElementById('detection-dashboard');
+  var contact = document.getElementById('contact-view');
   if (home) home.style.display = 'block';
   if (det) det.style.display = 'none';
+  if (contact) contact.style.display = 'none';
 }
 
 function showDetectionView(){
   var home = document.getElementById('home-view');
   var det = document.getElementById('detection-dashboard');
+  var contact = document.getElementById('contact-view');
   if (home) home.style.display = 'none';
   if (det) det.style.display = 'block';
+  if (contact) contact.style.display = 'none';
   // scroll to top of detection area
   try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
 }
@@ -705,8 +709,10 @@ function showUnavailable(task){
 function hideUnavailable(){
   var content = document.getElementById('detection-content');
   var ua = document.getElementById('task-unavailable');
+  var contact = document.getElementById('contact-view');
   if (ua) ua.style.display = 'none';
   if (content) content.style.display = 'block';
+  if (contact) contact.style.display = 'none';
 }
 
 // Wire nav links and task radio buttons after DOM is ready
