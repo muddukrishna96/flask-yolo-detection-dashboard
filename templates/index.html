@@ -58,6 +58,34 @@
       </div>
     </div>
 
+    <!-- Contact page view: replaces the modal when user clicks Contact in the top nav -->
+    <div id="contact-view" style="display:none; padding:40px 0; text-align:center;">
+      <div style="max-width:720px; margin:0 auto; text-align:left;">
+        <div class="card">
+          <div class="card-body d-flex align-items-start">
+            <img src="/static/assets/photo.jpg" alt="Photo" style="width:96px; height:96px; object-fit:cover; margin-right:16px;" class="rounded-circle">
+            <div>
+              <h3 style="margin:0 0 6px 0;">muddu krishna galavalli</h3>
+              <p style="margin:0 0 6px 0; color:#666;">AI / Computer Vision</p>
+              <p style="margin:6px 0;"><strong>Phone:</strong> <a href="tel:+4915906133210">+49 15906133210</a></p>
+              <p style="margin:6px 0;"><strong>Email:</strong> <a href="mailto:galavallimuddukrishna@gmail.com">galavallimuddukrishna@gmail.com</a></p>
+              <p style="margin:6px 0;">Links:
+                <a href="https://www.linkedin.com/in/galavalli-muddu-krishna-bb87ba112/" target="_blank" rel="noopener" class="ml-2"><i class="fab fa-linkedin"></i> LinkedIn</a>
+                <a href="https://github.com/muddukrishna96" target="_blank" rel="noopener" class="ml-3"><i class="fab fa-github"></i> GitHub</a>
+              </p>
+              <!-- Brief introduction / bio -->
+              <div style="margin-top:12px; color:#333;">
+                <h5 style="margin:8px 0 6px 0;">Brief Introduction</h5>
+                <p style="margin:0; line-height:1.45; font-size:0.95rem;">I am Muddu Krishna Galavalli, an AI Specialist with over three years of professional experience in machine learning, computer vision, and end-to-end AI engineering. I have a strong track record of delivering scalable, real-time inspection and automation solutions across the automotive, aerospace, and medical industries. My expertise spans designing and deploying advanced computer vision pipelines, leading cross-functional engineering teams, and managing full AI project lifecycles from large-scale data collection and annotation to model training, evaluation, and cloud deployment.</p>
+                <p style="margin:8px 0 0 0; line-height:1.45; font-size:0.95rem;">I bring a rare combination of deep technical expertise and strong project leadership. I&rsquo;ve architected multi-camera, real-time inspection systems that process over 3,000 units a day, delivered cloud-based inference pipelines with sub-2-second latency, and achieved industry-leading accuracy on mission-critical tasks like surgical screw identification and quality control automation. My work consistently bridges the gap between research and real-world deployment, ensuring AI systems are not just cutting-edge but reliable, scalable, and factory-ready.</p>
+                <p style="margin:8px 0 0 0; line-height:1.45; font-size:0.95rem;">I excel in fast-paced environments where innovation meets execution, and I&rsquo;m passionate about building intelligent vision systems that redefine operational performance. If your team needs someone who can own the entire ML lifecycle, align stakeholders, and deliver solutions that work where it matters in production — I&rsquo;m the person who makes it happen.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Detection dashboard: hidden until user selects Object detection task -->
     <div id="detection-dashboard" style="display:none;">
 
@@ -648,6 +676,16 @@ function showDetectionView(){
   try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
 }
 
+function showContactView(){
+  var home = document.getElementById('home-view');
+  var det = document.getElementById('detection-dashboard');
+  var contact = document.getElementById('contact-view');
+  if (home) home.style.display = 'none';
+  if (det) det.style.display = 'none';
+  if (contact) contact.style.display = 'block';
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+}
+
 function showUnavailable(task){
   var home = document.getElementById('home-view');
   var det = document.getElementById('detection-dashboard');
@@ -676,7 +714,7 @@ document.addEventListener('DOMContentLoaded', function(){
   var homeLink = document.getElementById('nav-home');
   var contactLink = document.getElementById('nav-contact');
   if (homeLink) homeLink.addEventListener('click', function(e){ e.preventDefault(); showHomeView(); });
-  if (contactLink) contactLink.addEventListener('click', function(e){ e.preventDefault(); $('#contact-modal').modal('show'); });
+  if (contactLink) contactLink.addEventListener('click', function(e){ e.preventDefault(); showContactView(); });
 
   // Task radio selection: show detection dashboard when object detection selected
     var taskRadios = document.querySelectorAll('input[name="taskOption"]');
