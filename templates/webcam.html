@@ -9,23 +9,240 @@
   <section class="content">
     <div class="container-fluid">
       <div class="row">
-        <section class="col-lg-8 connectedSortable">
+        <section class="col-lg-9 connectedSortable">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">Live Webcam Inference</h3>
+              <h3 class="card-title">Live Webcam Inference (WebRTC)</h3>
             </div>
             <div class="card-body">
-              <img id="webcam-stream" src="{{ url_for('webcam_feed') }}" style="width:100%; height:auto;" />
+              <div class="row mb-3">
+                <div class="col-md-4">
+                  <label for="model-select">Detection model</label>
+                  <select id="model-select" class="form-control">
+                    {% for model in models %}
+                    <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label for="camera-select">Webcam</label>
+                  <select id="camera-select" class="form-control">
+                    <option value="" selected>Default camera</option>
+                  </select>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                  <div class="btn-group w-100" role="group">
+                    <button id="start-session" class="btn btn-primary">Start streaming</button>
+                    <button id="stop-session" class="btn btn-secondary" disabled>Stop</button>
+                  </div>
+                </div>
+              </div>
+              <div class="alert alert-info" id="status-banner">Ready to start streaming.</div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <div class="border rounded p-2 h-100">
+                    <strong>Local preview</strong>
+                    <video id="local-video" class="w-100" playsinline autoplay muted></video>
+                  </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <div class="border rounded p-2 h-100">
+                    <strong>YOLO output</strong>
+                    <video id="remote-video" class="w-100" playsinline autoplay></video>
+                  </div>
+                </div>
+              </div>
+              <p class="text-muted mb-0">
+                WebRTC requires HTTPS when accessed remotely. Allow the browser to use your webcam when prompted.
+              </p>
             </div>
           </div>
         </section>
       </div>
       <div class="row">
-        <div class="col-lg-2">
-          <a href="{{ url_for('hello_world') }}" class="btn btn-danger">Stop and return Home</a>
+        <div class="col-lg-3">
+          <a href="{{ url_for('hello_world') }}" class="btn btn-danger">Back to dashboard</a>
         </div>
       </div>
     </div>
   </section>
 </div>
+
+<script>
+(function () {
+  const modelSelect = document.getElementById('model-select');
+  const cameraSelect = document.getElementById('camera-select');
+  const startBtn = document.getElementById('start-session');
+  const stopBtn = document.getElementById('stop-session');
+  const statusBanner = document.getElementById('status-banner');
+  const localVideo = document.getElementById('local-video');
+  const remoteVideo = document.getElementById('remote-video');
+
+  let pc = null;
+  let localStream = null;
+
+  function updateStatus(message, level) {
+    statusBanner.textContent = message;
+    statusBanner.className = 'alert alert-' + (level || 'info');
+  }
+
+  async function populateCameras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      updateStatus('Camera enumeration unsupported in this browser.', 'warning');
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const current = cameraSelect.value;
+      cameraSelect.innerHTML = '<option value="">Default camera</option>';
+
+      let index = 1;
+      for (const device of devices) {
+        if (device.kind !== 'videoinput') {
+          continue;
+        }
+        const option = document.createElement('option');
+        option.value = device.deviceId || '';
+        option.textContent = device.label || `Camera ${index}`;
+        if (option.value === current) {
+          option.selected = true;
+        }
+        cameraSelect.appendChild(option);
+        index += 1;
+      }
+    } catch (err) {
+      updateStatus('Unable to list cameras: ' + err.message, 'warning');
+    }
+  }
+
+  async function createPeerConnection(selectedModel) {
+    pc = new RTCPeerConnection();
+
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams[0]) {
+        remoteVideo.srcObject = event.streams[0];
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (!pc) {
+        return;
+      }
+      if (pc.connectionState === 'connected') {
+        updateStatus('Streaming in progress.', 'success');
+      }
+      if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+        const state = pc.connectionState;
+        stopSession(true);
+        updateStatus('Connection ' + state + '. Session stopped.', 'danger');
+      }
+    };
+
+    if (localStream) {
+      for (const track of localStream.getTracks()) {
+        pc.addTrack(track, localStream);
+      }
+    }
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+  const response = await fetch("{{ url_for('webrtc_offer') }}", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: selectedModel })
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Answer negotiation failed');
+    }
+
+    await pc.setRemoteDescription(payload);
+  }
+
+  async function startSession() {
+    startBtn.disabled = true;
+    updateStatus('Requesting camera access…', 'info');
+
+    const chosenModel = modelSelect.value;
+    const chosenDeviceId = cameraSelect.value;
+
+    const constraints = { video: true, audio: false };
+    if (chosenDeviceId) {
+      constraints.video = { deviceId: { exact: chosenDeviceId } };
+    }
+
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      updateStatus('Camera access denied: ' + err.message, 'danger');
+      startBtn.disabled = false;
+      return;
+    }
+
+    localVideo.srcObject = localStream;
+
+    try {
+      await createPeerConnection(chosenModel);
+      stopBtn.disabled = false;
+      modelSelect.disabled = true;
+      cameraSelect.disabled = true;
+      await populateCameras();
+    } catch (err) {
+      updateStatus(err.message, 'danger');
+      await stopSession(true);
+      startBtn.disabled = false;
+    }
+  }
+
+  async function stopSession(silent) {
+    if (pc) {
+      try {
+        pc.ontrack = null;
+        pc.onconnectionstatechange = null;
+        pc.close();
+      } catch (err) {
+        console.warn('Peer close failed', err);
+      }
+    }
+    pc = null;
+
+    if (localStream) {
+      for (const track of localStream.getTracks()) {
+        track.stop();
+      }
+    }
+    localStream = null;
+
+    localVideo.srcObject = null;
+    remoteVideo.srcObject = null;
+
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    modelSelect.disabled = false;
+    cameraSelect.disabled = false;
+
+    if (!silent) {
+      updateStatus('Session stopped.', 'info');
+    }
+  }
+
+  startBtn.addEventListener('click', () => {
+    startSession();
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopSession(false);
+  });
+
+  window.addEventListener('beforeunload', () => {
+    stopSession(true);
+  });
+
+  populateCameras();
+})();
+</script>
 {% endblock content %}

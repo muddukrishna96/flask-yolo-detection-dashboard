@@ -5,9 +5,12 @@ Supports image, video, single webcam, and dual webcam processing.
 """
 
 import argparse
+import asyncio
+import atexit
 import os
 import tempfile
-from flask import Flask, render_template, request, url_for, Response, send_from_directory
+import threading
+from flask import Flask, render_template, request, url_for, Response, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 import cv2
 
@@ -19,10 +22,26 @@ from backend.image_video_processor import (
 from backend.single_camera import get_webcam_frame
 from backend.dual_camera import get_dual_webcam_frame
 from backend.video_stream import get_frame, get_video_from_folder, stream_file_mp4_as_mjpeg
+from backend.webrtc_session import create_answer_for_offer, close_all_peers
 
 
 # Flask app initialization
 app = Flask(__name__)
+
+
+_webrtc_loop = asyncio.new_event_loop()
+_webrtc_thread = threading.Thread(target=_webrtc_loop.run_forever, daemon=True)
+_webrtc_thread.start()
+
+
+def _run_async(coro):
+    """Execute a coroutine on the dedicated WebRTC event loop and return its result."""
+
+    if _webrtc_loop.is_closed():
+        raise RuntimeError("WebRTC event loop already closed")
+
+    future = asyncio.run_coroutine_threadsafe(coro, _webrtc_loop)
+    return future.result()
 
 # Ensure uploads folder exists
 os.makedirs(os.path.join(os.path.dirname(__file__), 'uploads'), exist_ok=True)
@@ -361,7 +380,31 @@ def video_feed():
 @app.route('/webcam')
 def webcam_page():
     """Render webcam page with live inference and stop button."""
-    return render_template('webcam.html')
+    return render_template('webcam.html', models=list_models(), default_model='yolov8n.pt')
+
+
+@app.route('/webrtc/offer', methods=['POST'])
+def webrtc_offer() -> Response:
+    """Handle WebRTC offer from the browser and return an answer SDP."""
+
+    payload = request.get_json(silent=True) or {}
+    sdp = payload.get('sdp')
+    offer_type = payload.get('type')
+    model_name = (payload.get('model') or 'yolov8n.pt').strip()
+
+    if not sdp or not offer_type:
+        return jsonify({'error': 'Invalid SDP payload'}), 400
+
+    try:
+        app.logger.info('Received WebRTC offer for model %s from %s', model_name, request.remote_addr)
+        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name))
+    except ValueError as err:
+        return jsonify({'error': str(err)}), 400
+    except Exception as err:  # pragma: no cover - defensive logging path
+        app.logger.exception('WebRTC offer handling failed: {0}'.format(err))
+        return jsonify({'error': 'Failed to negotiate WebRTC session'}), 500
+
+    return jsonify({'sdp': answer.sdp, 'type': answer.type})
 
 
 @app.route('/webcam_feed')
@@ -419,6 +462,24 @@ def list_cameras():
         except Exception:
             pass
     return Response(json.dumps({'cameras': found}), mimetype='application/json')
+
+
+@atexit.register
+def _cleanup_webrtc() -> None:
+    try:
+        _run_async(close_all_peers())
+    except Exception:
+        pass
+    finally:
+        try:
+            _webrtc_loop.call_soon_threadsafe(_webrtc_loop.stop)
+        except Exception:
+            pass
+        try:
+            if _webrtc_thread.is_alive():
+                _webrtc_thread.join(timeout=1)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

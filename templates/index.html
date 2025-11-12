@@ -72,17 +72,11 @@
               <p style="margin:6px 0;">Links:
                 <a href="https://www.linkedin.com/in/galavalli-muddu-krishna-bb87ba112/" target="_blank" rel="noopener" class="ml-2"><i class="fab fa-linkedin"></i> LinkedIn</a>
                 <a href="https://github.com/muddukrishna96" target="_blank" rel="noopener" class="ml-3"><i class="fab fa-github"></i> GitHub</a>
-              </p>
-              <!-- Brief introduction / bio -->
-              <div style="margin-top:12px; color:#333;">
-                <h5 style="margin:8px 0 6px 0;">Brief Introduction</h5>
-                <p style="margin:0; line-height:1.45; font-size:0.95rem;">I am Muddu Krishna Galavalli, an AI Specialist with over three years of professional experience in machine learning, computer vision, and end-to-end AI engineering. I have a strong track record of delivering scalable, real-time inspection and automation solutions across the automotive, aerospace, and medical industries. My expertise spans designing and deploying advanced computer vision pipelines, leading cross-functional engineering teams, and managing full AI project lifecycles from large-scale data collection and annotation to model training, evaluation, and cloud deployment.</p>
-                <p style="margin:8px 0 0 0; line-height:1.45; font-size:0.95rem;">I bring a rare combination of deep technical expertise and strong project leadership. I&rsquo;ve architected multi-camera, real-time inspection systems that process over 3,000 units a day, delivered cloud-based inference pipelines with sub-2-second latency, and achieved industry-leading accuracy on mission-critical tasks like surgical screw identification and quality control automation. My work consistently bridges the gap between research and real-world deployment, ensuring AI systems are not just cutting-edge but reliable, scalable, and factory-ready.</p>
-                <p style="margin:8px 0 0 0; line-height:1.45; font-size:0.95rem;">I excel in fast-paced environments where innovation meets execution, and I&rsquo;m passionate about building intelligent vision systems that redefine operational performance. If your team needs someone who can own the entire ML lifecycle, align stakeholders, and deliver solutions that work where it matters in production — I&rsquo;m the person who makes it happen.</p>
               </div>
             </div>
           </div>
-        </div>
+
+          <p style="margin:8px 0 0 0; line-height:1.45; font-size:0.95rem;">I bring a rare combination of deep technical expertise and strong project leadership. I&rsquo;ve architected multi-camera, real-time inspection systems that process over 3,000 units a day, delivered cloud-based inference pipelines with sub-2-second latency, and achieved industry-leading accuracy on mission-critical tasks like surgical screw identification and quality control automation. My work consistently bridges the gap between research and real-world deployment, ensuring AI systems are not just cutting-edge but reliable, scalable, and factory-ready.</p>
       </div>
     </div>
 
@@ -159,11 +153,11 @@
 				
                 
               </div><!-- /.card-header -->
-              <div class="card-body">
+              <div class="card-body" style="overflow: visible;">
                 <div class="tab-content p-0">
                   <!-- Morris chart - Sales -->
-                  <div class="chart tab-pane active" id="revenue-chart"
-                        style="position: relative; height: 700px;">
+      <div class="chart tab-pane active" id="revenue-chart"
+        style="position: relative; overflow: visible;">
             
 			<!-- AI code - LEFT PANEL VISIBLE WORKFLOW -->
 
@@ -383,18 +377,22 @@
               <div class="card-body">
                 <div class="tab-content p-0">
                   <!-- Morris chart - Sales -->
-                  <div class="chart tab-pane active" id="revenue-chart"
-                        style="position: relative; height: 700px;">
+      <div class="chart tab-pane active" id="revenue-chart"
+        style="position: relative;">
             
 			<!-- AI code-->
 
 
 
-<!-- Result display area (images, video, or webcam stream will be loaded here) -->
-<div class="right-result-container" style="width:100%;">
-  <!-- For images we reuse the img element. For server-generated video we'll swap in an img streaming from video_feed or an HTML5 video tag if desired. -->
-  <img id="result-display" src="" alt="Detection result" style="max-width:100%; height:640px; display: none; object-fit: contain; border:1px solid #ddd;" />
-  <img id="video-display" src="" alt="Video result" style="max-width:100%; height:640px; display: none; object-fit: contain; border:1px solid #ddd;" />
+<!-- Result display area (images, WebRTC video, or MJPEG streams will be loaded here) -->
+<div class="right-result-container" style="width:100%; display:flex; flex-direction:column; gap:12px; overflow:visible;">
+  <!-- Primary WebRTC stream (single camera or first dual camera feed) -->
+  <video id="webrtc-remote" playsinline autoplay muted style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px; background:transparent;"></video>
+  <!-- Secondary WebRTC stream (used only for dual camera mode) -->
+  <video id="webrtc-remote-secondary" playsinline autoplay muted style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px; background:transparent;"></video>
+  <!-- MJPEG / fallback elements -->
+  <img id="result-display" src="" alt="Detection result" style="max-width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd;" />
+  <img id="video-display" src="" alt="Video result" style="max-width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd;" />
   <!-- Loading spinner shown while server is processing -->
   <div id="result-spinner" style="display:none; margin-top:16px;">
     <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;">
@@ -402,46 +400,445 @@
     </div>
     <div id="spinner-text" style="margin-top:8px; font-weight:500;">Processing, please wait...</div>
   </div>
+  <div id="webrtc-inline-status" class="alert alert-info" style="display:none; margin-top:12px;"></div>
   <div style="margin-top:8px; text-align:center;">
     <button type="button" id="stop-btn" class="btn btn-danger btn-sm" style="display:none;">Close</button>
   </div>
 </div>
 
+<script type="application/json" id="server-context-data">
+  {{ {
+    'image_url': image_url | default('', true),
+    'video_present': video_present | default(false, true),
+    'video_folder': video_folder | default('', true),
+    'server_video_stream_url': server_video_stream_url | default('', true)
+  }|tojson }}
+</script>
+
 <script>
-// Show uploaded/processed image if provided by server
-// server-provided processed image URL (empty string if none)
-var server_image_url = {{ (image_url if image_url else '')|tojson }};
-var server_video_present = {{ ('true' if video_present else 'false')|tojson }} === 'true';
-var server_video_folder = {{ (video_folder if video_folder else '')|tojson }};
-var server_video_stream_url = {{ (server_video_stream_url if server_video_stream_url else '')|tojson }};
+// Server-provided processed outputs (empty string if none)
+var serverContextElement = document.getElementById('server-context-data');
+var serverContext = {};
+if (serverContextElement) {
+  try {
+    serverContext = JSON.parse(serverContextElement.textContent || '{}');
+  } catch (err) {
+    console.warn('Unable to parse server context data:', err);
+  }
+}
+var server_image_url = serverContext.image_url || '';
+var server_video_present = !!serverContext.video_present;
+var server_video_folder = serverContext.video_folder || '';
+var server_video_stream_url = serverContext.server_video_stream_url || '';
+
+var webrtcManager = {
+  sessions: [],
+  add: function(session) {
+    this.sessions.push(session);
+  },
+  remove: function(session) {
+    var idx = this.sessions.indexOf(session);
+    if (idx !== -1) {
+      this.sessions.splice(idx, 1);
+    }
+  },
+  closeAll: function(hideVideo) {
+    var active = this.sessions.slice();
+    active.forEach(function(session) {
+      closeWebRTCSingleSession(session, hideVideo);
+    });
+    this.sessions = [];
+  }
+};
+
+function closeWebRTCSingleSession(session, hideVideo) {
+  if (!session) {
+    return;
+  }
+
+  try {
+    if (session.pc) {
+      session.pc.ontrack = null;
+      session.pc.onconnectionstatechange = null;
+      session.pc.close();
+    }
+  } catch (err) {
+    console.warn('Peer close failed', err);
+  }
+
+  if (session.localStream && session.manageTracks !== false) {
+    session.localStream.getTracks().forEach(function(track) {
+      try {
+        track.stop();
+      } catch (err) {
+        console.warn('track stop error', err);
+      }
+    });
+  }
+
+  if (session.remoteVideo) {
+    try {
+      session.remoteVideo.pause();
+    } catch (err) {}
+    session.remoteVideo.srcObject = null;
+    if (hideVideo) {
+      session.remoteVideo.style.display = 'none';
+    }
+  }
+}
+
+function updateWebrtcStatus(message, level) {
+  var box = document.getElementById('webrtc-inline-status');
+  if (!box) {
+    return;
+  }
+  if (!message) {
+    box.style.display = 'none';
+    box.textContent = '';
+    box.className = 'alert alert-info';
+    return;
+  }
+  box.textContent = message;
+  box.className = 'alert alert-' + (level || 'info');
+  box.style.display = 'block';
+}
+
+function hideRemoteVideos() {
+  var primary = document.getElementById('webrtc-remote');
+  if (primary) {
+    try { primary.pause(); } catch (err) {}
+    primary.srcObject = null;
+    primary.style.display = 'none';
+  }
+  var secondary = document.getElementById('webrtc-remote-secondary');
+  if (secondary) {
+    try { secondary.pause(); } catch (err) {}
+    secondary.srcObject = null;
+    secondary.style.display = 'none';
+  }
+}
+
+function resetResultOutputs() {
+  var img = document.getElementById('result-display');
+  if (img) {
+    try { img.src = ''; } catch (err) {}
+    img.style.display = 'none';
+  }
+
+  var vimg = document.getElementById('video-display');
+  if (vimg) {
+    vimg.onload = null;
+    try { vimg.src = ''; } catch (err) {}
+    vimg.style.display = 'none';
+  }
+}
+
+function stopWebRTCSession(silent) {
+  webrtcManager.closeAll(true);
+  hideRemoteVideos();
+
+  if (!silent) {
+    updateWebrtcStatus('WebRTC session closed.', 'info');
+  } else {
+    updateWebrtcStatus('', 'info');
+  }
+
+  var stopBtn = document.getElementById('stop-btn');
+  if (stopBtn) {
+    stopBtn.style.display = 'none';
+  }
+}
+
+async function getVideoInputs() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    return [];
+  }
+  var devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter(function(d) { return d.kind === 'videoinput'; });
+}
+
+async function getDeviceIdForIndex(camIndex) {
+  async function ensureDevices() {
+    var videos = await getVideoInputs();
+    if (videos.length) {
+      return videos;
+    }
+
+    try {
+      var temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      temp.getTracks().forEach(function(track) { track.stop(); });
+    } catch (err) {
+      console.warn('Temporary camera access failed:', err);
+      return [];
+    }
+
+    return await getVideoInputs();
+  }
+
+  var videos = await ensureDevices();
+  if (!videos.length) {
+    return null;
+  }
+
+  if (typeof camIndex === 'number' && camIndex >= 0 && camIndex < videos.length && videos[camIndex].deviceId) {
+    return videos[camIndex].deviceId;
+  }
+
+  return videos[0].deviceId || null;
+}
+
+async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFrame, options) {
+  options = options || {};
+  var PeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+
+  if (!window.isSecureContext) {
+    throw new Error('Browser blocked camera because this page is not served over HTTPS or localhost.');
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error('Camera APIs unavailable. Ensure the site is served over HTTPS and camera permissions are allowed.');
+  }
+
+  if (!PeerConnection) {
+    throw new Error('WebRTC peer connection is not supported in this browser.');
+  }
+
+  if (!remoteVideo) {
+    throw new Error('Missing remote video element.');
+  }
+
+  remoteVideo.pause();
+  remoteVideo.srcObject = null;
+  remoteVideo.style.display = 'none';
+
+  var localStream = options.localStream || null;
+  var manageTracks = options.manageTracks !== false;
+
+  if (!localStream) {
+    var constraints = { video: true, audio: false };
+    if (deviceId) {
+      constraints.video = { deviceId: { exact: deviceId } };
+    }
+
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      throw new Error('Camera access denied: ' + err.message);
+    }
+  }
+
+  var pc = new PeerConnection();
+  var session = { pc: pc, localStream: localStream, remoteVideo: remoteVideo, manageTracks: manageTracks };
+  webrtcManager.add(session);
+
+  localStream.getTracks().forEach(function(track) {
+    pc.addTrack(track, localStream);
+  });
+
+  pc.ontrack = function(event) {
+    if (event.streams && event.streams[0]) {
+      remoteVideo.srcObject = event.streams[0];
+    }
+    remoteVideo.style.display = 'block';
+    try { remoteVideo.play(); } catch (err) {}
+    if (typeof onFirstFrame === 'function') {
+      onFirstFrame();
+    }
+  };
+
+  pc.onconnectionstatechange = function() {
+    if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+      closeWebRTCSingleSession(session, false);
+      webrtcManager.remove(session);
+      updateWebrtcStatus('Connection ' + pc.connectionState + '. Stream stopped.', 'warning');
+    }
+  };
+
+  try {
+    var offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    var response = await fetch("{{ url_for('webrtc_offer') }}", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model })
+    });
+
+    var payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'WebRTC negotiation failed.');
+    }
+
+    await pc.setRemoteDescription(payload);
+  } catch (err) {
+    closeWebRTCSingleSession(session, true);
+    webrtcManager.remove(session);
+    throw err;
+  }
+
+  return session;
+}
+
+async function startDualWebRTCSession(model0, deviceId0, model1, deviceId1) {
+  var remoteA = document.getElementById('webrtc-remote');
+  var remoteB = document.getElementById('webrtc-remote-secondary');
+
+  if (!remoteA || !remoteB) {
+    throw new Error('Dual camera video elements not found.');
+  }
+
+  if (!deviceId0 || !deviceId1) {
+    throw new Error('Unable to resolve two camera devices.');
+  }
+
+  hideRemoteVideos();
+
+  var spinner = document.getElementById('result-spinner');
+  var stopBtn = document.getElementById('stop-btn');
+  var connected = 0;
+
+  function handleFrame() {
+    connected += 1;
+    if (connected === 2) {
+      if (spinner) {
+        spinner.style.display = 'none';
+      }
+      if (stopBtn) {
+        stopBtn.style.display = 'inline-block';
+      }
+      updateWebrtcStatus('Streaming dual WebRTC feeds.', 'success');
+      setTimeout(function(){ updateWebrtcStatus('', 'info'); }, 3000);
+    }
+  }
+
+  await Promise.all([
+    startSingleWebRTCSession(model0, deviceId0, remoteA, handleFrame),
+    startSingleWebRTCSession(model1, deviceId1, remoteB, handleFrame)
+  ]);
+}
+
+async function startSplitWebRTCSession(model0, model1, camIndex) {
+  var remoteA = document.getElementById('webrtc-remote');
+  var remoteB = document.getElementById('webrtc-remote-secondary');
+
+  if (!remoteA || !remoteB) {
+    throw new Error('Split view video elements not found.');
+  }
+
+  var deviceId = await getDeviceIdForIndex(camIndex);
+  if (!deviceId) {
+    throw new Error('Unable to access camera device for split view.');
+  }
+
+  hideRemoteVideos();
+
+  var spinner = document.getElementById('result-spinner');
+  var stopBtn = document.getElementById('stop-btn');
+  var connected = 0;
+
+  var baseStream;
+  try {
+    var constraints = { video: { deviceId: { exact: deviceId } }, audio: false };
+    baseStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (err) {
+    throw new Error('Camera access denied for split view: ' + err.message);
+  }
+
+  var streamA = new MediaStream();
+  var streamB = new MediaStream();
+  baseStream.getVideoTracks().forEach(function(track) {
+    streamA.addTrack(track);
+    streamB.addTrack(track.clone());
+  });
+
+  function handleFrame() {
+    connected += 1;
+    if (connected === 2) {
+      if (spinner) {
+        spinner.style.display = 'none';
+      }
+      if (stopBtn) {
+        stopBtn.style.display = 'inline-block';
+      }
+      updateWebrtcStatus('Streaming split WebRTC feeds.', 'success');
+      setTimeout(function(){ updateWebrtcStatus('', 'info'); }, 3000);
+    }
+  }
+
+  try {
+    await Promise.all([
+      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA }),
+      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB })
+    ]);
+  } catch (err) {
+    streamA.getTracks().forEach(function(track){ try { track.stop(); } catch (stopErr) { console.warn('stop streamA track failed', stopErr); } });
+    streamB.getTracks().forEach(function(track){ try { track.stop(); } catch (stopErr) { console.warn('stop streamB track failed', stopErr); } });
+    throw err;
+  }
+}
+
+function startLegacyStream(url) {
+  var vimg = document.getElementById('video-display');
+  var spinner = document.getElementById('result-spinner');
+  if (!vimg) {
+    return;
+  }
+
+  vimg.style.display = 'none';
+  vimg.onload = function() {
+    if (spinner) {
+      spinner.style.display = 'none';
+    }
+    vimg.style.display = 'block';
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'inline-block';
+    }
+    updateWebrtcStatus('Streaming via server-side pipeline.', 'info');
+  };
+
+  vimg.src = url;
+
+  setTimeout(function() {
+    if (spinner && spinner.style.display !== 'none') {
+      spinner.style.display = 'none';
+      vimg.style.display = 'block';
+      var stopBtn = document.getElementById('stop-btn');
+      if (stopBtn) {
+        stopBtn.style.display = 'inline-block';
+      }
+      updateWebrtcStatus('Streaming via server-side pipeline.', 'info');
+    }
+  }, 5000);
+}
+
 function showUploadedResult() {
+  stopWebRTCSession(true);
+  hideRemoteVideos();
+  resetResultOutputs();
+
+  var spinner = document.getElementById('result-spinner');
+  if (spinner) {
+    spinner.style.display = 'none';
+  }
+
   if (server_image_url) {
     var img = document.getElementById('result-display');
-    img.src = server_image_url;
-    img.style.display = 'block';
-    document.getElementById('stop-btn').style.display = 'inline-block';
-    // hide spinner once result is ready
-    var spinner = document.getElementById('result-spinner');
-    if (spinner) spinner.style.display = 'none';
+    if (img) {
+      img.src = server_image_url;
+      img.style.display = 'block';
+    }
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'inline-block';
+    }
   }
   else if (server_video_present) {
-    // show server-processed video: set src to video_feed with folder param so it reads the right file
-    var vimg = document.getElementById('video-display');
     var feedUrl = "{{ url_for('video_feed') }}" + (server_video_folder ? "?folder=" + server_video_folder : "");
-    vimg.src = feedUrl;
-    vimg.style.display = 'block';
-    document.getElementById('stop-btn').style.display = 'inline-block';
-    var spinner = document.getElementById('result-spinner');
-    if (spinner) spinner.style.display = 'none';
+    startLegacyStream(feedUrl);
   }
   else if (server_video_stream_url) {
-    // Show server-processed MJPEG stream for uploaded video (per-frame processing)
-    var vimg = document.getElementById('video-display');
-    vimg.src = server_video_stream_url;
-    vimg.style.display = 'block';
-    document.getElementById('stop-btn').style.display = 'inline-block';
-    var spinner = document.getElementById('result-spinner');
-    if (spinner) spinner.style.display = 'none';
+    startLegacyStream(server_video_stream_url);
   }
 }
 
@@ -512,104 +909,198 @@ function toggleDualCameraOptions() {
   }
 }
 
-// Start webcam based on selected configuration
-function startSelectedWebcam() {
-  // Read camera mode from radios (inline UI) or fallback to old select
-  var modeRadio = document.querySelector('input[name="camera_mode"]:checked');
-  var mode = modeRadio ? modeRadio.value : (document.getElementById('camera-mode-select') ? document.getElementById('camera-mode-select').value : 'single');
-  var vimg = document.getElementById('video-display');
-  var img = document.getElementById('result-display');
-  var spinner = document.getElementById('result-spinner');
-  var spinnerText = document.getElementById('spinner-text');
-
-  // Do not rely on modal; just show spinner in the result area
-  if (img) img.style.display = 'none';
-  if (vimg) vimg.style.display = 'none';
-  if (spinner) {
-    spinner.style.display = 'block';
-    if (spinnerText) {
-      spinnerText.textContent = mode === 'single' ? 'Initializing camera and loading model...' : 'Initializing cameras and loading models...';
-    }
-  }
-
-  // Helper to choose camera index then start stream
-  function chooseCameraAndStart(startFn) {
+function promptForCameraIndex() {
+  return new Promise(function(resolve) {
     fetch('{{ url_for("list_cameras") }}').then(function(r){ return r.json(); }).then(function(data){
       var cams = (data && data.cameras) ? data.cameras : [];
-      if (cams.length > 1) {
-        // show modal to pick index
-        var list = document.getElementById('camera-index-list');
-        list.innerHTML = '';
-        cams.forEach(function(ci){
-          var id = 'cam_radio_' + ci;
-          var div = document.createElement('div');
-          div.className = 'form-check';
-          div.innerHTML = '<input class="form-check-input" type="radio" name="cam_index" id="'+id+'" value="'+ci+'">'
-                        + '<label class="form-check-label small" for="'+id+'">Camera '+ci+'</label>';
-          list.appendChild(div);
-        });
-        // pre-select first
-        var first = list.querySelector('input[name="cam_index"]'); if (first) first.checked = true;
-        var modal = document.getElementById('camera-index-modal');
-        modal.style.display = 'block';
-        document.getElementById('camera-index-choose').onclick = function(){
-          var sel = document.querySelector('input[name="cam_index"]:checked');
-          var idx = sel ? sel.value : cams[0];
-          modal.style.display = 'none';
-          startFn(parseInt(idx,10));
-        };
-        document.getElementById('camera-index-cancel').onclick = function(){ modal.style.display = 'none'; };
-      } else {
-        // single or none -> default to 0 or detected
-        var idx = cams.length === 1 ? cams[0] : 0;
-        startFn(idx);
+      if (cams.length <= 1) {
+        resolve(cams.length ? cams[0] : 0);
+        return;
       }
-    }).catch(function(){ startFn(0); });
+
+      var list = document.getElementById('camera-index-list');
+      if (!list) {
+        resolve(cams[0]);
+        return;
+      }
+
+      list.innerHTML = '';
+      cams.forEach(function(ci){
+        var id = 'cam_radio_' + ci;
+        var div = document.createElement('div');
+        div.className = 'form-check';
+        div.innerHTML = '<input class="form-check-input" type="radio" name="cam_index" id="' + id + '" value="' + ci + '">' +
+                        '<label class="form-check-label small" for="' + id + '">Camera ' + ci + '</label>';
+        list.appendChild(div);
+      });
+
+      var first = list.querySelector('input[name="cam_index"]');
+      if (first) {
+        first.checked = true;
+      }
+
+      var modal = document.getElementById('camera-index-modal');
+      if (!modal) {
+        resolve(cams[0]);
+        return;
+      }
+
+      modal.style.display = 'block';
+
+      var chooseBtn = document.getElementById('camera-index-choose');
+      var cancelBtn = document.getElementById('camera-index-cancel');
+
+      chooseBtn.onclick = function() {
+        var sel = document.querySelector('input[name="cam_index"]:checked');
+        modal.style.display = 'none';
+        resolve(sel ? parseInt(sel.value, 10) : cams[0]);
+      };
+
+      cancelBtn.onclick = function() {
+        modal.style.display = 'none';
+        resolve(cams[0]);
+      };
+    }).catch(function() {
+      resolve(0);
+    });
+  });
+}
+
+async function startSelectedWebcam() {
+  var modeRadio = document.querySelector('input[name="camera_mode"]:checked');
+  var mode = modeRadio ? modeRadio.value : (document.getElementById('camera-mode-select') ? document.getElementById('camera-mode-select').value : 'single');
+  var spinner = document.getElementById('result-spinner');
+  var spinnerText = document.getElementById('spinner-text');
+  var img = document.getElementById('result-display');
+  var vimg = document.getElementById('video-display');
+
+  stopWebRTCSession(true);
+  hideRemoteVideos();
+  resetResultOutputs();
+
+  if (img) {
+    img.style.display = 'none';
+  }
+  if (vimg) {
+    vimg.style.display = 'none';
   }
 
-  // Set up the webcam stream URL based on selected inline radio models
-  if (mode === 'single') {
-    // Check if user wants to process the single camera with two models (stacked)
-    var singleSplitCheckbox = document.getElementById('single_split_mode');
-    var isSplit = singleSplitCheckbox && singleSplitCheckbox.checked;
-    if (isSplit) {
-      var m0 = document.querySelector('input[name="dual_model0"]:checked');
-      var m1 = document.querySelector('input[name="dual_model1"]:checked');
-      var model0 = m0 ? m0.value : 'yolov8n.pt';
-      var model1 = m1 ? m1.value : 'yolov8n.pt';
-      chooseCameraAndStart(function(camIndex){
-        vimg.src = "{{ url_for('webcam_feed_split') }}?model0=" + encodeURIComponent(model0) + "&model1=" + encodeURIComponent(model1) + "&cam=" + encodeURIComponent(camIndex);
-      });
-    } else {
+  if (spinner) {
+    spinner.style.display = 'block';
+  }
+  if (spinnerText) {
+    spinnerText.textContent = mode === 'single' ? 'Initializing camera and loading model...' : 'Initializing cameras and loading models...';
+  }
+
+  var fallbackModel = null;
+  var fallbackCamIndex = 0;
+  var fallbackModel0 = null;
+  var fallbackModel1 = null;
+  var splitModeRequested = false;
+
+  try {
+    if (mode === 'single') {
+      var singleSplitCheckbox = document.getElementById('single_split_mode');
+      var isSplit = singleSplitCheckbox && singleSplitCheckbox.checked;
+      if (isSplit) {
+        var splitModel0Radio = document.querySelector('input[name="dual_model0"]:checked');
+        var splitModel1Radio = document.querySelector('input[name="dual_model1"]:checked');
+        var splitModel0 = splitModel0Radio ? splitModel0Radio.value : 'yolov8n.pt';
+        var splitModel1 = splitModel1Radio ? splitModel1Radio.value : 'yolov8n.pt';
+        var splitCamIndex = await promptForCameraIndex();
+        splitModeRequested = true;
+        fallbackModel0 = splitModel0;
+        fallbackModel1 = splitModel1;
+        fallbackCamIndex = splitCamIndex;
+        if (spinnerText) {
+          spinnerText.textContent = 'Negotiating split WebRTC sessions...';
+        }
+        updateWebrtcStatus('Negotiating split WebRTC sessions...', 'info');
+        await startSplitWebRTCSession(splitModel0, splitModel1, splitCamIndex);
+        return;
+      }
+
       var selModel = document.querySelector('input[name="single_model"]:checked');
       var model = selModel ? selModel.value : 'yolov8n.pt';
-      chooseCameraAndStart(function(camIndex){
-        vimg.src = "{{ url_for('webcam_feed') }}?model=" + encodeURIComponent(model) + "&cam=" + encodeURIComponent(camIndex);
+      fallbackModel = model;
+
+      var camIndex = await promptForCameraIndex();
+      fallbackCamIndex = camIndex;
+      var deviceId = await getDeviceIdForIndex(camIndex);
+      var remoteVideo = document.getElementById('webrtc-remote');
+      if (!remoteVideo) {
+        throw new Error('Missing remote video element.');
+      }
+
+      updateWebrtcStatus('Negotiating WebRTC session...', 'info');
+      await startSingleWebRTCSession(model, deviceId, remoteVideo, function() {
+        if (spinner) {
+          spinner.style.display = 'none';
+        }
+        var stopBtn = document.getElementById('stop-btn');
+        if (stopBtn) {
+          stopBtn.style.display = 'inline-block';
+        }
+        updateWebrtcStatus('Streaming via WebRTC.', 'success');
+        setTimeout(function(){ updateWebrtcStatus('', 'info'); }, 3000);
       });
+    } else {
+      var dualModel0Radio = document.querySelector('input[name="dual_model0"]:checked');
+      var dualModel1Radio = document.querySelector('input[name="dual_model1"]:checked');
+      var model0 = dualModel0Radio ? dualModel0Radio.value : 'yolov8n.pt';
+      var model1 = dualModel1Radio ? dualModel1Radio.value : 'yolov8n.pt';
+      fallbackModel0 = model0;
+      fallbackModel1 = model1;
+
+      var deviceId0 = await getDeviceIdForIndex(0);
+      var deviceId1 = await getDeviceIdForIndex(1);
+
+      if (!deviceId0 || !deviceId1) {
+        throw new Error('Unable to find two camera devices for dual mode.');
+      }
+
+      if (spinnerText) {
+        spinnerText.textContent = 'Negotiating WebRTC sessions...';
+      }
+      updateWebrtcStatus('Negotiating dual WebRTC sessions...', 'info');
+      await startDualWebRTCSession(model0, deviceId0, model1, deviceId1);
     }
-  } else {
-    var m0 = document.querySelector('input[name="dual_model0"]:checked');
-    var m1 = document.querySelector('input[name="dual_model1"]:checked');
-    var model0 = m0 ? m0.value : 'yolov8n.pt';
-    var model1 = m1 ? m1.value : 'yolov8n.pt';
-    vimg.src = "{{ url_for('webcam_feed_dual') }}?model0=" + encodeURIComponent(model0) + "&model1=" + encodeURIComponent(model1);
+  } catch (err) {
+    console.error('WebRTC start failed:', err);
+    var message = err && err.message ? err.message : 'unknown error';
+
+    if (mode === 'single' && splitModeRequested) {
+      if (spinnerText) {
+        spinnerText.textContent = 'Split WebRTC failed, falling back to server-side stream...';
+      }
+      updateWebrtcStatus('Split WebRTC failed: ' + message + '. Falling back to server-side stream.', 'danger');
+      stopWebRTCSession(true);
+      hideRemoteVideos();
+      startLegacyStream("{{ url_for('webcam_feed_split') }}?model0=" + encodeURIComponent(fallbackModel0 || 'yolov8n.pt') + "&model1=" + encodeURIComponent(fallbackModel1 || 'yolov8n.pt') + "&cam=" + encodeURIComponent(fallbackCamIndex));
+    }
+    else if (mode === 'single' && fallbackModel !== null) {
+      if (spinnerText) {
+        spinnerText.textContent = 'WebRTC failed, falling back to server-side stream...';
+      }
+      updateWebrtcStatus('WebRTC negotiation failed: ' + message + '. Falling back to server-side stream.', 'danger');
+      stopWebRTCSession(true);
+      hideRemoteVideos();
+      startLegacyStream("{{ url_for('webcam_feed') }}?model=" + encodeURIComponent(fallbackModel) + "&cam=" + encodeURIComponent(fallbackCamIndex));
+    } else if (mode === 'dual') {
+      if (spinnerText) {
+        spinnerText.textContent = 'Dual WebRTC failed, falling back to server-side stream...';
+      }
+      updateWebrtcStatus('Dual WebRTC failed: ' + message + '. Falling back to server-side stream.', 'danger');
+      stopWebRTCSession(true);
+      hideRemoteVideos();
+      startLegacyStream("{{ url_for('webcam_feed_dual') }}?model0=" + encodeURIComponent(fallbackModel0 || 'yolov8n.pt') + "&model1=" + encodeURIComponent(fallbackModel1 || 'yolov8n.pt'));
+    } else {
+      if (spinner) {
+        spinner.style.display = 'none';
+      }
+      updateWebrtcStatus('Unable to start webcam: ' + message, 'danger');
+    }
   }
-  
-  // Show video display and hide spinner once stream starts loading
-  vimg.onload = function() {
-    if (spinner) spinner.style.display = 'none';
-    vimg.style.display = 'block';
-    document.getElementById('stop-btn').style.display = 'inline-block';
-  };
-  
-  // For MJPEG streams, onload may not fire, so use a timeout fallback
-  setTimeout(function() {
-    if (spinner && spinner.style.display !== 'none') {
-      spinner.style.display = 'none';
-      vimg.style.display = 'block';
-      document.getElementById('stop-btn').style.display = 'inline-block';
-    }
-  }, 5000); // Show video after 5 seconds to account for model loading + camera init
 }
 
 // Start webcam stream into the result area (kept for backward compatibility)
@@ -619,21 +1110,19 @@ function startWebcam() {
 
 // Stop any stream and clear the result area (works for image, processed video or webcam)
 function stopStream() {
-  var img = document.getElementById('result-display');
-  var vimg = document.getElementById('video-display');
+  stopWebRTCSession(true);
+  hideRemoteVideos();
+  resetResultOutputs();
+
   var spinner = document.getElementById('result-spinner');
   var spinnerText = document.getElementById('spinner-text');
-  
-  // Clearing src should close MJPEG connections in most browsers
-  try { img.src = ''; } catch(e) {}
-  try { vimg.src = ''; } catch(e) {}
-  img.style.display = 'none';
-  vimg.style.display = 'none';
-  document.getElementById('stop-btn').style.display = 'none';
-  
-  // Hide spinner and reset text
-  if (spinner) spinner.style.display = 'none';
-  if (spinnerText) spinnerText.textContent = 'Processing, please wait...';
+  if (spinner) {
+    spinner.style.display = 'none';
+  }
+  if (spinnerText) {
+    spinnerText.textContent = 'Processing, please wait...';
+  }
+  updateWebrtcStatus('', 'info');
 }
 
 document.getElementById('stop-btn').addEventListener('click', function(e){
@@ -845,7 +1334,17 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
   }
   // Wire Start Webcam inline button to existing startSelectedWebcam function
   var startInline = document.getElementById('start-webcam-inline');
-  if (startInline) startInline.addEventListener('click', function(){ startSelectedWebcam(); });
+  if (startInline) startInline.addEventListener('click', function(){
+    startSelectedWebcam().catch(function(err){
+      console.error('Failed to start webcam', err);
+      var message = err && err.message ? err.message : err;
+      updateWebrtcStatus('Unable to start webcam: ' + message, 'danger');
+      var spinner = document.getElementById('result-spinner');
+      if (spinner) {
+        spinner.style.display = 'none';
+      }
+    });
+  });
 
 })();
 </script>
