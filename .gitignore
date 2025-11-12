@@ -7,6 +7,10 @@ models/*
 !models/.gitkeep
 backend/ARCHITECTURE.md
 
+#deployment scripts
+scripts/deploy.sh
+deploy.md
+
 # YOLO Detection Outputs
 runs/*
 !runs/.gitkeep
