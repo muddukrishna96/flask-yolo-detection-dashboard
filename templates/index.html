@@ -334,6 +334,26 @@
             </div>
           </div>
 
+              <!-- WebRTC error modal -->
+              <div class="modal fade" id="webrtc-error-modal" tabindex="-1" role="dialog" aria-labelledby="webrtc-error-title" aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                  <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                      <h5 class="modal-title" id="webrtc-error-title">WebRTC Stream Error</h5>
+                      <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                      </button>
+                    </div>
+                    <div class="modal-body">
+                      <p id="webrtc-error-message" class="mb-0">An unexpected error occurred while starting the WebRTC stream.</p>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
       </div>
       <!-- Sticky action bar so Start/Predict are always visible -->
       <div class="left-actions">
@@ -501,6 +521,18 @@ function updateWebrtcStatus(message, level) {
   box.textContent = message;
   box.className = 'alert alert-' + (level || 'info');
   box.style.display = 'block';
+}
+
+function showWebrtcErrorModal(message) {
+  var content = document.getElementById('webrtc-error-message');
+  if (content) {
+    content.textContent = message || 'An unexpected error occurred while starting the WebRTC stream.';
+  }
+  if (window.jQuery && jQuery('#webrtc-error-modal').modal) {
+    jQuery('#webrtc-error-modal').modal('show');
+  } else {
+    window.alert(message || 'An unexpected error occurred while starting the WebRTC stream.');
+  }
 }
 
 function hideRemoteVideos() {
@@ -1069,37 +1101,34 @@ async function startSelectedWebcam() {
     console.error('WebRTC start failed:', err);
     var message = err && err.message ? err.message : 'unknown error';
 
+    if (spinner) {
+      spinner.style.display = 'none';
+    }
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'none';
+    }
+
+    stopWebRTCSession(true);
+    hideRemoteVideos();
+
+    if (spinnerText) {
+      spinnerText.textContent = 'Failed to start WebRTC session.';
+    }
+
+    var errorContext;
     if (mode === 'single' && splitModeRequested) {
-      if (spinnerText) {
-        spinnerText.textContent = 'Split WebRTC failed, falling back to server-side stream...';
-      }
-      updateWebrtcStatus('Split WebRTC failed: ' + message + '. Falling back to server-side stream.', 'danger');
-      stopWebRTCSession(true);
-      hideRemoteVideos();
-      startLegacyStream("{{ url_for('webcam_feed_split') }}?model0=" + encodeURIComponent(fallbackModel0 || 'yolov8n.pt') + "&model1=" + encodeURIComponent(fallbackModel1 || 'yolov8n.pt') + "&cam=" + encodeURIComponent(fallbackCamIndex));
-    }
-    else if (mode === 'single' && fallbackModel !== null) {
-      if (spinnerText) {
-        spinnerText.textContent = 'WebRTC failed, falling back to server-side stream...';
-      }
-      updateWebrtcStatus('WebRTC negotiation failed: ' + message + '. Falling back to server-side stream.', 'danger');
-      stopWebRTCSession(true);
-      hideRemoteVideos();
-      startLegacyStream("{{ url_for('webcam_feed') }}?model=" + encodeURIComponent(fallbackModel) + "&cam=" + encodeURIComponent(fallbackCamIndex));
+      errorContext = 'Split WebRTC failed: ' + message;
+    } else if (mode === 'single' && fallbackModel !== null) {
+      errorContext = 'WebRTC negotiation failed: ' + message;
     } else if (mode === 'dual') {
-      if (spinnerText) {
-        spinnerText.textContent = 'Dual WebRTC failed, falling back to server-side stream...';
-      }
-      updateWebrtcStatus('Dual WebRTC failed: ' + message + '. Falling back to server-side stream.', 'danger');
-      stopWebRTCSession(true);
-      hideRemoteVideos();
-      startLegacyStream("{{ url_for('webcam_feed_dual') }}?model0=" + encodeURIComponent(fallbackModel0 || 'yolov8n.pt') + "&model1=" + encodeURIComponent(fallbackModel1 || 'yolov8n.pt'));
+      errorContext = 'Dual WebRTC failed: ' + message;
     } else {
-      if (spinner) {
-        spinner.style.display = 'none';
-      }
-      updateWebrtcStatus('Unable to start webcam: ' + message, 'danger');
+      errorContext = 'Unable to start webcam: ' + message;
     }
+
+    updateWebrtcStatus(errorContext, 'danger');
+    showWebrtcErrorModal(errorContext);
   }
 }
 
@@ -1338,7 +1367,9 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
     startSelectedWebcam().catch(function(err){
       console.error('Failed to start webcam', err);
       var message = err && err.message ? err.message : err;
-      updateWebrtcStatus('Unable to start webcam: ' + message, 'danger');
+      var finalMessage = 'Unable to start webcam: ' + message;
+      updateWebrtcStatus(finalMessage, 'danger');
+      showWebrtcErrorModal(finalMessage);
       var spinner = document.getElementById('result-spinner');
       if (spinner) {
         spinner.style.display = 'none';
