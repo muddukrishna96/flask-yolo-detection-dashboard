@@ -294,7 +294,7 @@
               <h5 class="modal-title">Select Camera</h5>
             </div>
             <div class="modal-body" id="camera-index-body">
-              <p>Multiple cameras detected. Choose which camera to use:</p>
+              <p id="camera-index-instructions">Multiple cameras detected. Choose which camera to use:</p>
               <div id="camera-index-list"></div>
             </div>
             <div class="modal-footer">
@@ -941,60 +941,129 @@ function toggleDualCameraOptions() {
   }
 }
 
-function promptForCameraIndex() {
+function promptForCameraIndices(requiredCount) {
+  requiredCount = Math.max(1, requiredCount || 1);
   return new Promise(function(resolve) {
     fetch('{{ url_for("list_cameras") }}').then(function(r){ return r.json(); }).then(function(data){
-      var cams = (data && data.cameras) ? data.cameras : [];
-      if (cams.length <= 1) {
-        resolve(cams.length ? cams[0] : 0);
+      var cams = (data && Array.isArray(data.cameras)) ? data.cameras.slice() : [];
+      if (!cams.length) {
+        resolve(requiredCount === 1 ? [0] : []);
+        return;
+      }
+
+      if (cams.length <= requiredCount) {
+        resolve(cams.slice(0, requiredCount));
         return;
       }
 
       var list = document.getElementById('camera-index-list');
-      if (!list) {
-        resolve(cams[0]);
+      var modal = document.getElementById('camera-index-modal');
+      var instructions = document.getElementById('camera-index-instructions');
+      if (!list || !modal) {
+        resolve(cams.slice(0, requiredCount));
         return;
       }
 
       list.innerHTML = '';
+
+      var inputType = (requiredCount === 1) ? 'radio' : 'checkbox';
+      var inputName = (requiredCount === 1) ? 'cam_index_single' : 'cam_index_multi';
+      if (instructions) {
+        instructions.textContent = (requiredCount === 1)
+          ? 'Multiple cameras detected. Choose which camera to use:'
+          : 'Multiple cameras detected. Select ' + requiredCount + ' cameras to use:';
+      }
+
       cams.forEach(function(ci){
-        var id = 'cam_radio_' + ci;
-        var div = document.createElement('div');
-        div.className = 'form-check';
-        div.innerHTML = '<input class="form-check-input" type="radio" name="cam_index" id="' + id + '" value="' + ci + '">' +
-                        '<label class="form-check-label small" for="' + id + '">Camera ' + ci + '</label>';
-        list.appendChild(div);
+        var id = 'cam_select_' + ci;
+        var wrapper = document.createElement('div');
+        wrapper.className = 'form-check';
+        wrapper.innerHTML = '<input class="form-check-input" type="' + inputType + '" name="' + inputName + '" id="' + id + '" value="' + ci + '">' +
+                             '<label class="form-check-label small" for="' + id + '">Camera ' + ci + '</label>';
+        list.appendChild(wrapper);
       });
-
-      var first = list.querySelector('input[name="cam_index"]');
-      if (first) {
-        first.checked = true;
-      }
-
-      var modal = document.getElementById('camera-index-modal');
-      if (!modal) {
-        resolve(cams[0]);
-        return;
-      }
-
-      modal.style.display = 'block';
 
       var chooseBtn = document.getElementById('camera-index-choose');
       var cancelBtn = document.getElementById('camera-index-cancel');
+      var resolved = false;
 
-      chooseBtn.onclick = function() {
-        var sel = document.querySelector('input[name="cam_index"]:checked');
-        modal.style.display = 'none';
-        resolve(sel ? parseInt(sel.value, 10) : cams[0]);
-      };
+      function cleanup(result) {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        if (modal) {
+          modal.style.display = 'none';
+        }
+        if (chooseBtn) {
+          chooseBtn.onclick = null;
+        }
+        if (cancelBtn) {
+          cancelBtn.onclick = null;
+        }
+        resolve(result);
+      }
 
-      cancelBtn.onclick = function() {
-        modal.style.display = 'none';
-        resolve(cams[0]);
-      };
+      function enforceSelectionState() {
+        if (!chooseBtn || inputType === 'radio') {
+          return;
+        }
+        var checked = list.querySelectorAll('input[type="checkbox"]:checked').length;
+        chooseBtn.disabled = checked !== requiredCount;
+      }
+
+      if (chooseBtn) {
+        chooseBtn.disabled = (inputType === 'checkbox');
+        chooseBtn.onclick = function() {
+          var selected = [];
+          var selector = 'input[name="' + inputName + '"]' + (inputType === 'checkbox' ? ':checked' : ':checked');
+          list.querySelectorAll(selector).forEach(function(el){
+            var val = parseInt(el.value, 10);
+            if (!Number.isNaN(val)) {
+              selected.push(val);
+            }
+          });
+
+          if (inputType === 'radio' && !selected.length) {
+            selected.push(cams[0]);
+          }
+
+          if (inputType === 'checkbox' && selected.length !== requiredCount) {
+            return;
+          }
+
+          cleanup(selected.slice(0, requiredCount));
+        };
+      }
+
+      if (cancelBtn) {
+        cancelBtn.onclick = function() {
+          cleanup(cams.slice(0, requiredCount));
+        };
+      }
+
+      if (inputType === 'radio') {
+        var first = list.querySelector('input[type="radio"]');
+        if (first) {
+          first.checked = true;
+        }
+      } else {
+        list.querySelectorAll('input[type="checkbox"]').forEach(function(el){
+          el.addEventListener('change', enforceSelectionState);
+        });
+      }
+
+      enforceSelectionState();
+      modal.style.display = 'block';
     }).catch(function() {
-      resolve(0);
+      resolve(requiredCount === 1 ? [0] : []);
     });
+  });
+}
+
+function promptForCameraIndex() {
+  return promptForCameraIndices(1).then(function(indices) {
+    return (indices && indices.length) ? indices[0] : 0;
   });
 }
 
@@ -1084,11 +1153,20 @@ async function startSelectedWebcam() {
       fallbackModel0 = model0;
       fallbackModel1 = model1;
 
-      var deviceId0 = await getDeviceIdForIndex(0);
-      var deviceId1 = await getDeviceIdForIndex(1);
+      var camSelection = await promptForCameraIndices(2);
+      if (!Array.isArray(camSelection) || camSelection.length < 2) {
+        throw new Error('At least two cameras are required for dual mode.');
+      }
+
+      var deviceId0 = await getDeviceIdForIndex(camSelection[0]);
+      var deviceId1 = await getDeviceIdForIndex(camSelection[1]);
 
       if (!deviceId0 || !deviceId1) {
         throw new Error('Unable to find two camera devices for dual mode.');
+      }
+
+      if (deviceId0 === deviceId1) {
+        throw new Error('Selected cameras resolve to the same device. Pick two distinct cameras.');
       }
 
       if (spinnerText) {
