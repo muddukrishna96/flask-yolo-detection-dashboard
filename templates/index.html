@@ -228,13 +228,14 @@
     </div>
 
     <!-- File input (Image/Video) - visible but disabled until relevant option chosen -->
-    <div id="file-input-area" class="mb-2">
+    <div id="file-input-area" class="mb-2" style="display:none;">
+      <div class="small text-muted" id="file-input-hint" style="display:none; margin-bottom:4px;"></div>
       <input type="file" name="file" class="form-control-file" id="inputfile" disabled
             accept="image/png,image/jpeg,image/jpg,image/bmp,image/gif,image/webp,video/mp4,video/avi,video/quicktime,video/x-matroska,video/x-flv,video/x-ms-wmv">
     </div>
 
     <!-- Webcam options - visible but controls disabled until Webcam selected -->
-    <div id="webcam-options-area" class="mb-2" style="border:1px solid #f1f1f1; padding:8px; border-radius:6px;">
+    <div id="webcam-options-area" class="mb-2" style="border:1px solid #f1f1f1; padding:8px; border-radius:6px; display:none;">
       <div class="form-group">
         <label class="small">Camera mode</label>
         <div>
@@ -1352,22 +1353,92 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
 (function(){
   // inputType radios
   var inputRadios = document.querySelectorAll('input[name="inputType"]');
+  var fileArea = document.getElementById('file-input-area');
+  var fileHint = document.getElementById('file-input-hint');
+  var webcamArea = document.getElementById('webcam-options-area');
+  var fileInput = document.getElementById('inputfile');
+  var startBtn = document.getElementById('start-webcam-inline');
+  var predictBtn = document.getElementById('predict-btn');
+
+  function showElement(el, shouldShow) {
+    if (!el) {
+      return;
+    }
+    el.style.display = shouldShow ? '' : 'none';
+  }
+
   inputRadios.forEach(function(r){ r.addEventListener('change', function(){
     var val = document.querySelector('input[name="inputType"]:checked').value;
+
     if (val === 'image' || val === 'video'){
-      document.getElementById('inputfile').disabled = false;
-      document.getElementById('predict-btn').disabled = true; // enabled when file selected
-      document.getElementById('start-webcam-inline').disabled = true;
+      if (fileInput) {
+        fileInput.disabled = false;
+        fileInput.value = '';
+      }
+      if (predictBtn) {
+        predictBtn.disabled = true;
+        predictBtn.classList.remove('btn-danger');
+        predictBtn.classList.add('btn-secondary');
+        predictBtn.textContent = 'Predict';
+        showElement(predictBtn, true);
+      }
+      if (startBtn) {
+        startBtn.disabled = true;
+        showElement(startBtn, false);
+      }
+      if (fileHint) {
+        fileHint.textContent = (val === 'image')
+          ? 'Upload an image file for detection (PNG, JPG, JPEG, BMP, GIF, WebP).'
+          : 'Upload a video file for frame-by-frame inference (MP4, AVI, MOV, MKV, FLV, WMV).';
+        fileHint.style.display = 'block';
+      }
+      showElement(fileArea, true);
+      showElement(webcamArea, false);
     } else if (val === 'webcam'){
-      document.getElementById('inputfile').disabled = true;
-      document.getElementById('inputfile').value = '';
-      document.getElementById('predict-btn').disabled = true;
-      document.getElementById('start-webcam-inline').disabled = false;
+      if (fileInput) {
+        fileInput.disabled = true;
+        fileInput.value = '';
+      }
+      if (predictBtn) {
+        predictBtn.disabled = true;
+        predictBtn.classList.remove('btn-danger');
+        predictBtn.classList.add('btn-secondary');
+        predictBtn.textContent = 'Predict';
+        showElement(predictBtn, false);
+      }
+      if (startBtn) {
+        startBtn.disabled = false;
+        try {
+          startBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (err) {}
+        startBtn.style.boxShadow = '0 0 0.5rem rgba(220,53,69,0.25)';
+        setTimeout(function(){ startBtn.style.boxShadow = ''; }, 1200);
+        showElement(startBtn, true);
+      }
+      if (fileHint) {
+        fileHint.style.display = 'none';
+      }
+      showElement(fileArea, false);
+      showElement(webcamArea, true);
+      // Ensure webcam mode sections reflect current toggles
+      try { toggleDualCameraOptions(); } catch (err) {}
     }
   }); });
 
+  var presetInput = document.querySelector('input[name="inputType"]:checked');
+  if (presetInput) {
+    presetInput.dispatchEvent(new Event('change'));
+  } else {
+    showElement(fileArea, false);
+    showElement(webcamArea, false);
+    showElement(predictBtn, false);
+    showElement(startBtn, false);
+    if (fileHint) {
+      fileHint.style.display = 'none';
+    }
+  }
+
   // file input change -> enable Predict
-  var fileInput = document.getElementById('inputfile');
     if (fileInput){
     fileInput.addEventListener('change', function(){
       var btn = document.getElementById('predict-btn');
