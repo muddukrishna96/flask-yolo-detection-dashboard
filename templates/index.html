@@ -391,7 +391,7 @@
               <div class="card-header">
                 <h3 class="card-title">
                   <i class="fas fa-chart-pie mr-1"></i>
-                  YOLO {{ 'Segmentation' if selected_task == 'segmentation' else 'Object Detection' }} Results
+                  YOLO {% if selected_task == 'segmentation' %}Segmentation{% elif selected_task == 'pose' %}Pose{% else %}Object Detection{% endif %} Results
                 </h3>
 				
                 
@@ -455,7 +455,8 @@ var server_video_present = !!serverContext.video_present;
 var server_video_folder = serverContext.video_folder || '';
 var server_video_stream_url = serverContext.server_video_stream_url || '';
 var currentTask = serverContext.selected_task || 'detection';
-var currentModel = serverContext.selected_model || 'yolov8n.pt';
+var fallbackModels = { detection: 'yolov8n.pt', segmentation: 'yolo11n-seg.pt', pose: 'yolov8n-pose.pt' };
+var currentModel = serverContext.selected_model || fallbackModels[currentTask] || fallbackModels.detection;
 
 var webrtcManager = {
   sessions: [],
@@ -1296,7 +1297,7 @@ window.addEventListener('load', function(){
       showDetectionView();
     } else {
       var taskNow = getCurrentTask();
-      if (taskNow === 'detection' || taskNow === 'segmentation') {
+      if (taskNow === 'detection' || taskNow === 'segmentation' || taskNow === 'pose') {
         hideUnavailable();
         showDetectionView();
       } else {
@@ -1369,7 +1370,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if (homeLink) homeLink.addEventListener('click', function(e){ e.preventDefault(); showHomeView(); });
   if (contactLink) contactLink.addEventListener('click', function(e){ e.preventDefault(); showContactView(); });
 
-  // Task radio selection: reload for detection/segmentation, show placeholder otherwise
+  // Task radio selection: reload for implemented tasks, show placeholder otherwise
   var taskRadios = document.querySelectorAll('input[name="taskOption"]');
   var initialTask = currentTask;
 
@@ -1388,7 +1389,7 @@ document.addEventListener('DOMContentLoaded', function(){
       var selectedValue = this.value;
       syncTaskState(selectedValue);
 
-      if (selectedValue === 'detection' || selectedValue === 'segmentation') {
+      if (selectedValue === 'detection' || selectedValue === 'segmentation' || selectedValue === 'pose') {
         hideUnavailable();
         showDetectionView();
 

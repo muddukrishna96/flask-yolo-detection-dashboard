@@ -12,12 +12,12 @@
         <section class="col-lg-9 connectedSortable">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">Live {{ 'Segmentation' if selected_task == 'segmentation' else 'Detection' }} Webcam Inference (WebRTC)</h3>
+              <h3 class="card-title">Live {% if selected_task == 'segmentation' %}Segmentation{% elif selected_task == 'pose' %}Pose{% else %}Detection{% endif %} Webcam Inference (WebRTC)</h3>
             </div>
             <div class="card-body">
               <div class="row mb-3">
                 <div class="col-md-4">
-                  <label for="model-select">{{ 'Segmentation' if selected_task == 'segmentation' else 'Detection' }} model</label>
+                  <label for="model-select">{% if selected_task == 'segmentation' %}Segmentation{% elif selected_task == 'pose' %}Pose{% else %}Detection{% endif %} model</label>
                   <select id="model-select" class="form-control">
                     {% for model in models %}
                     <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
@@ -95,7 +95,7 @@
         }
 
         activeTask = this.value;
-        if (activeTask === 'detection' || activeTask === 'segmentation') {
+        if (activeTask === 'detection' || activeTask === 'segmentation' || activeTask === 'pose') {
           try {
             const targetUrl = new URL(window.location.href);
             targetUrl.searchParams.set('task', activeTask);

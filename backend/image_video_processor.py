@@ -8,6 +8,7 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Tuple
 
 import cv2
 import numpy as np
@@ -57,6 +58,18 @@ def _hex_to_bgr(value: int) -> tuple[int, int, int]:
 _CLASS_COLOR_PALETTE = tuple(_hex_to_bgr(v) for v in _CLASS_COLOR_HEX)
 
 
+_TASK_METADATA: dict[str, dict[str, str]] = {
+    'detection': {'run_dir': 'detect', 'suffix': 'detected'},
+    'segmentation': {'run_dir': 'segment', 'suffix': 'segmented'},
+    'pose': {'run_dir': 'pose', 'suffix': 'posed'},
+}
+
+
+def _task_run_properties(task: str) -> Tuple[str, str]:
+    meta = _TASK_METADATA.get(task, _TASK_METADATA['detection'])
+    return meta['run_dir'], meta['suffix']
+
+
 def _get_color_for_class(class_id: int | None, default_color=(0, 255, 255)) -> tuple[int, int, int]:
     if class_id is None or class_id < 0:
         return default_color
@@ -69,6 +82,9 @@ def _get_color_for_class(class_id: int | None, default_color=(0, 255, 255)) -> t
     value = 1.0
     r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
     return (int(b * 255), int(g * 255), int(r * 255))
+
+
+_POSE_MIN_CONFIDENCE = 0.25
 
 
 def annotate_detections(image, prediction, color=(0, 255, 255)):
@@ -283,9 +299,89 @@ def annotate_segmentation(image, prediction, mask_alpha: float = 0.45):
     return annotated
 
 
+def annotate_pose(image, prediction):
+    """Overlay pose keypoints and limbs with custom styling."""
+
+    if image is None or prediction is None:
+        return image
+
+    annotated = annotate_detections(image, prediction)
+
+    keypoints = getattr(prediction, 'keypoints', None)
+    if keypoints is None:
+        return annotated
+
+    xy_data = getattr(keypoints, 'xy', None)
+    if xy_data is None:
+        return annotated
+
+    if hasattr(xy_data, 'cpu'):
+        xy_data = xy_data.cpu().numpy()
+    else:
+        xy_data = np.asarray(xy_data)
+
+    if xy_data.size == 0:
+        return annotated
+
+    conf_data = getattr(keypoints, 'confidence', None)
+    if conf_data is not None and hasattr(conf_data, 'cpu'):
+        conf_data = conf_data.cpu().numpy()
+    elif conf_data is not None:
+        conf_data = np.asarray(conf_data)
+
+    if conf_data is not None and conf_data.ndim == 3:
+        conf_data = np.squeeze(conf_data, axis=-1)
+
+    boxes = getattr(prediction, 'boxes', None)
+    classes = None
+    if boxes is not None:
+        classes = getattr(boxes, 'cls', None)
+        if classes is not None and hasattr(classes, 'cpu'):
+            classes = classes.cpu().numpy().astype(int)
+        elif classes is not None:
+            classes = np.asarray(classes).astype(int)
+
+    num_instances = xy_data.shape[0]
+    num_keypoints = xy_data.shape[1] if xy_data.ndim >= 2 else 0
+
+    for det_idx in range(num_instances):
+        points = xy_data[det_idx]
+        if points is None or len(points) == 0:
+            continue
+
+        # Fixed styling requested: green circumference with red center
+        ring_color = (0, 255, 0)
+        core_color = (0, 0, 255)
+
+        conf_row = None
+        if conf_data is not None and det_idx < len(conf_data):
+            conf_row = conf_data[det_idx]
+
+        for kp_idx in range(num_keypoints):
+            kp = points[kp_idx]
+            if not np.isfinite(kp).all():
+                continue
+
+            kp_conf = None
+            if conf_row is not None and kp_idx < len(conf_row):
+                kp_conf = conf_row[kp_idx]
+                if isinstance(kp_conf, (np.ndarray, list, tuple)):
+                    kp_conf = kp_conf[0]
+            if kp_conf is not None and kp_conf < _POSE_MIN_CONFIDENCE:
+                continue
+
+            center = (int(round(kp[0])), int(round(kp[1])))
+            cv2.circle(annotated, center, 6, ring_color, 2, cv2.LINE_AA)
+            cv2.circle(annotated, center, 3, core_color, -1, cv2.LINE_AA)
+
+    return annotated
+
+
 def annotate_frame(image, prediction, task: str = 'detection'):
     if task == 'segmentation':
         return annotate_segmentation(image, prediction)
+    if task == 'pose':
+        return annotate_pose(image, prediction)
     return annotate_detections(image, prediction)
 
 
@@ -389,17 +485,17 @@ def is_video_file(filename):
 
 def process_image(filepath, model_name='yolov8n.pt', task: str = 'detection'):
     """
-    Process an image file with YOLO detection.
-    
+    Process an image file with the selected YOLO task (detection, segmentation, or pose).
+
     Args:
         filepath: Path to the image file
-        model_name: YOLO model to use for detection
-        
+        model_name: YOLO model to use for inference
+
     Returns:
         tuple: (latest_subfolder, processed_filename) for accessing results
-        
+
     Raises:
-        Exception: If model loading or detection fails
+        Exception: If model loading or inference fails
     """
     img = cv2.imread(filepath)
     if img is None:
@@ -412,11 +508,10 @@ def process_image(filepath, model_name='yolov8n.pt', task: str = 'detection'):
     annotated = annotate_frame(img, prediction, task=task)
     annotated = add_model_overlay(annotated, model_name)
 
-    task_dir = 'detect' if task == 'detection' else 'segment'
+    task_dir, suffix = _task_run_properties(task)
     folder_name, folder_path = _create_run_folder(task_dir, 'image')
     original_name = Path(filepath).stem
     extension = Path(filepath).suffix or '.jpg'
-    suffix = 'detected' if task == 'detection' else 'segmented'
     processed_filename = f"{original_name}_{suffix}{extension}"
     processed_path = folder_path / processed_filename
 
@@ -427,15 +522,15 @@ def process_image(filepath, model_name='yolov8n.pt', task: str = 'detection'):
 
 def process_video(filepath, model_name='yolov8n.pt', task: str = 'detection'):
     """
-    Process a video file with YOLO detection frame by frame.
-    
+    Process a video file frame by frame using the selected YOLO task.
+
     Args:
         filepath: Path to the video file
-        model_name: YOLO model to use for detection
-        
+        model_name: YOLO model to use for inference
+
     Returns:
         str: latest_subfolder name where results are stored
-        
+
     Raises:
         Exception: If model loading or video processing fails
     """
@@ -449,10 +544,9 @@ def process_video(filepath, model_name='yolov8n.pt', task: str = 'detection'):
 
     model = get_model(model_name)
 
-    task_dir = 'detect' if task == 'detection' else 'segment'
+    task_dir, suffix = _task_run_properties(task)
     folder_name, folder_path = _create_run_folder(task_dir, 'video')
     video_name = Path(filepath).stem or 'processed'
-    suffix = 'detected' if task == 'detection' else 'segmented'
     output_path = folder_path / f"{video_name}_{suffix}.mp4"
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')

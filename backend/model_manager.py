@@ -32,6 +32,11 @@ ALLOWED_SEGMENTATION_MODELS = {
     'yolov9c-seg.pt',
 }
 
+# Pose models
+ALLOWED_POSE_MODELS = {
+    'yolov8n-pose.pt',
+}
+
 
 def _combine_models(*groups: Iterable[str]) -> set[str]:
     merged = set()
@@ -40,7 +45,7 @@ def _combine_models(*groups: Iterable[str]) -> set[str]:
     return merged
 
 
-ALLOWED_MODELS = _combine_models(ALLOWED_DETECTION_MODELS, ALLOWED_SEGMENTATION_MODELS)
+ALLOWED_MODELS = _combine_models(ALLOWED_DETECTION_MODELS, ALLOWED_SEGMENTATION_MODELS, ALLOWED_POSE_MODELS)
 
 
 def get_model(model_name: str):
@@ -102,8 +107,8 @@ def register_custom_model(name: str, model_instance) -> None:
 
 def list_models():
     """Return a sorted list of available model names (built-ins + uploaded)."""
-    # For backward compatibility default to detection models + custom uploads
-    built = sorted(list(ALLOWED_DETECTION_MODELS))
+    built_in = ALLOWED_DETECTION_MODELS | ALLOWED_SEGMENTATION_MODELS | ALLOWED_POSE_MODELS
+    built = sorted(list(built_in))
     customs = sorted(list(custom_model_names))
     return built + customs
 
@@ -116,6 +121,11 @@ def list_detection_models() -> List[str]:
 def list_segmentation_models() -> List[str]:
     """Return available segmentation task models."""
     return sorted(list(ALLOWED_SEGMENTATION_MODELS))
+
+
+def list_pose_models() -> List[str]:
+    """Return available pose task models."""
+    return sorted(list(ALLOWED_POSE_MODELS))
 
 
 def preload_default_model():
