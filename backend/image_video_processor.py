@@ -3,10 +3,169 @@ Image and video processing functions for YOLO object detection.
 Handles file upload, detection, and result generation.
 """
 
+import colorsys
 import os
+import shutil
+from datetime import datetime
+from pathlib import Path
+
 import cv2
 import numpy as np
 from backend.model_manager import get_model
+
+
+def draw_neon_corner_box(frame, x1, y1, x2, y2, color=(0, 255, 255), thickness=3, corner_len=25, glow_intensity=0.1):
+    """Draw a glowing neon-style corner box around the object."""
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
+    cv2.addWeighted(overlay, glow_intensity, frame, 1 - glow_intensity, 0, frame)
+
+    cv2.line(frame, (x1, y1), (x1 + corner_len, y1), color, thickness)
+    cv2.line(frame, (x1, y1), (x1, y1 + corner_len), color, thickness)
+    cv2.line(frame, (x2, y1), (x2 - corner_len, y1), color, thickness)
+    cv2.line(frame, (x2, y1), (x2, y1 + corner_len), color, thickness)
+    cv2.line(frame, (x1, y2), (x1 + corner_len, y2), color, thickness)
+    cv2.line(frame, (x1, y2), (x1, y2 - corner_len), color, thickness)
+    cv2.line(frame, (x2, y2), (x2 - corner_len, y2), color, thickness)
+    cv2.line(frame, (x2, y2), (x2, y2 - corner_len), color, thickness)
+
+    return frame
+
+
+_CLASS_COLOR_HEX = (
+    0xFF6B6B,
+    0xFFD166,
+    0x06D6A0,
+    0x118AB2,
+    0xEF476F,
+    0x9B5DE5,
+    0xF15BB5,
+    0x00BBF9,
+    0x00F5D4,
+    0xFEE440,
+)
+
+
+def _hex_to_bgr(value: int) -> tuple[int, int, int]:
+    r = (value >> 16) & 0xFF
+    g = (value >> 8) & 0xFF
+    b = value & 0xFF
+    return (b, g, r)
+
+
+_CLASS_COLOR_PALETTE = tuple(_hex_to_bgr(v) for v in _CLASS_COLOR_HEX)
+
+
+def _get_color_for_class(class_id: int | None, default_color=(0, 255, 255)) -> tuple[int, int, int]:
+    if class_id is None or class_id < 0:
+        return default_color
+
+    if class_id < len(_CLASS_COLOR_PALETTE):
+        return _CLASS_COLOR_PALETTE[class_id]
+
+    hue = (class_id * 0.161803) % 1.0  # fractional golden ratio for good separation
+    saturation = 0.78
+    value = 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+    return (int(b * 255), int(g * 255), int(r * 255))
+
+
+def annotate_detections(image, prediction, color=(0, 255, 255)):
+    """Apply custom neon-style visualization for YOLO bounding boxes."""
+
+    if image is None or prediction is None:
+        return image
+
+    annotated = image.copy()
+    boxes = getattr(prediction, 'boxes', None)
+    if boxes is None or len(boxes) == 0:
+        return annotated
+
+    xyxy = boxes.xyxy
+    if hasattr(xyxy, 'cpu'):
+        xyxy = xyxy.cpu()
+    xyxy = np.asarray(xyxy)
+
+    confs = getattr(boxes, 'conf', None)
+    if confs is not None and hasattr(confs, 'cpu'):
+        confs = confs.cpu().numpy()
+    elif confs is not None:
+        confs = np.asarray(confs)
+
+    classes = getattr(boxes, 'cls', None)
+    if classes is not None and hasattr(classes, 'cpu'):
+        classes = classes.cpu().numpy().astype(int)
+    elif classes is not None:
+        classes = np.asarray(classes).astype(int)
+
+    names = getattr(prediction, 'names', None)
+    if names is None:
+        model_ref = getattr(prediction, 'model', None)
+        names = getattr(model_ref, 'names', None)
+
+    height, width = annotated.shape[:2]
+    font = cv2.FONT_HERSHEY_DUPLEX
+    base_scale = 0.6
+    base_thickness = 2
+
+    for idx, coords in enumerate(xyxy):
+        x1, y1, x2, y2 = coords
+        x1 = int(max(0, min(round(x1), width - 1)))
+        y1 = int(max(0, min(round(y1), height - 1)))
+        x2 = int(max(0, min(round(x2), width - 1)))
+        y2 = int(max(0, min(round(y2), height - 1)))
+
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        class_id = None
+        if classes is not None and idx < len(classes):
+            class_id = int(classes[idx])
+
+        box_color = _get_color_for_class(class_id, default_color=color)
+
+        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color)
+
+        label_parts = []
+        if class_id is not None:
+            if isinstance(names, dict):
+                label_parts.append(str(names.get(class_id, class_id)))
+            elif isinstance(names, (list, tuple)) and 0 <= class_id < len(names):
+                label_parts.append(str(names[class_id]))
+            else:
+                label_parts.append(str(class_id))
+
+        if confs is not None and idx < len(confs):
+            label_parts.append(f"{confs[idx]:.2f}")
+
+        if label_parts:
+            label_text = " ".join(label_parts)
+            (text_w, text_h), baseline = cv2.getTextSize(label_text, font, base_scale, base_thickness)
+
+            text_x = x1 + 8
+            text_y = y1 - 12
+            if text_y - text_h - baseline < 0:
+                text_y = y1 + text_h + 12
+
+            rect_start = (max(text_x - 6, 0), max(text_y - text_h - 6, 0))
+            rect_end = (min(text_x + text_w + 6, width - 1), min(text_y + 6, height - 1))
+
+            accent_color = box_color if sum(box_color) > 255 else (255, 255, 255)
+            cv2.rectangle(annotated, rect_start, rect_end, (0, 0, 0), -1)
+            cv2.putText(annotated, label_text, (text_x, text_y), font, base_scale, accent_color, base_thickness, cv2.LINE_AA)
+
+    return annotated
+
+
+def _create_detection_run_folder(prefix: str = 'detect'):
+    base_dir = Path(os.getcwd()) / 'runs' / 'detect'
+    base_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
+    folder_name = f"{prefix}_{timestamp}"
+    folder_path = base_dir / folder_name
+    folder_path.mkdir(parents=True, exist_ok=False)
+    return folder_name, folder_path
 
 
 def add_model_overlay(image, model_name):
@@ -112,40 +271,25 @@ def process_image(filepath, model_name='yolov8n.pt'):
         Exception: If model loading or detection fails
     """
     img = cv2.imread(filepath)
-    
-    # Load model and run detection
+    if img is None:
+        raise ValueError(f"Unable to load image from {filepath}")
+
     model = get_model(model_name)
-    detections = model(img, save=True)
-    
-    # Locate the latest runs/detect folder
-    folder_path = os.path.join(os.getcwd(), 'runs', 'detect')
-    subfolders = [d for d in os.listdir(folder_path) 
-                  if os.path.isdir(os.path.join(folder_path, d))]
-    latest_subfolder = max(subfolders, key=lambda x: os.path.getctime(os.path.join(folder_path, x)))
-    
-    # Find processed image filename
-    filename = os.path.basename(filepath)
-    processed_filename = None
-    
-    for fname in os.listdir(os.path.join(folder_path, latest_subfolder)):
-        if os.path.splitext(fname)[0] in filename:
-            processed_filename = fname
-            break
-    
-    if processed_filename is None:
-        # Fallback to any jpg in folder
-        files = [fn for fn in os.listdir(os.path.join(folder_path, latest_subfolder)) 
-                if fn.lower().endswith('.jpg')]
-        processed_filename = files[0] if files else ''
-    
-    # Add model overlay to the processed image
-    processed_path = os.path.join(folder_path, latest_subfolder, processed_filename)
-    if os.path.exists(processed_path):
-        result_img = cv2.imread(processed_path)
-        result_img = add_model_overlay(result_img, model_name)
-        cv2.imwrite(processed_path, result_img)
-    
-    return latest_subfolder, processed_filename
+    results = model(img, verbose=False)
+    prediction = results[0]
+
+    annotated = annotate_detections(img, prediction)
+    annotated = add_model_overlay(annotated, model_name)
+
+    folder_name, folder_path = _create_detection_run_folder('image')
+    original_name = Path(filepath).stem
+    extension = Path(filepath).suffix or '.jpg'
+    processed_filename = f"{original_name}_detected{extension}"
+    processed_path = folder_path / processed_filename
+
+    cv2.imwrite(str(processed_path), annotated)
+
+    return folder_name, processed_filename
 
 
 def process_video(filepath, model_name='yolov8n.pt'):
@@ -163,45 +307,43 @@ def process_video(filepath, model_name='yolov8n.pt'):
         Exception: If model loading or video processing fails
     """
     cap = cv2.VideoCapture(filepath)
-    
-    # Get video dimensions
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
-    # Define codec and create VideoWriter
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter('output.mp4', fourcc, 30.0, (frame_width, frame_height))
-    
-    # Load model
+    if not cap.isOpened():
+        raise ValueError(f"Unable to open video source {filepath}")
+
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+
     model = get_model(model_name)
-    
-    # Process video frame by frame
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        # Run YOLO detection on frame
-        results = model(frame, save=True)
-        res_plotted = results[0].plot()
-        
-        # Add model overlay to each frame
-        res_plotted = add_model_overlay(res_plotted, model_name)
-        
-        # Write frame to output video
-        out.write(res_plotted)
-    
-    # Release resources
-    out.release()
-    cap.release()
-    
-    # Find the latest runs/detect folder
-    folder_path = os.path.join(os.getcwd(), 'runs', 'detect')
-    subfolders = [d for d in os.listdir(folder_path) 
-                  if os.path.isdir(os.path.join(folder_path, d))]
-    latest_subfolder = max(subfolders, key=lambda x: os.path.getctime(os.path.join(folder_path, x)))
-    
-    return latest_subfolder
+
+    folder_name, folder_path = _create_detection_run_folder('video')
+    video_name = Path(filepath).stem or 'processed'
+    output_path = folder_path / f"{video_name}_detected.mp4"
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (frame_width, frame_height))
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            results = model(frame, verbose=False)
+            annotated = annotate_detections(frame, results[0])
+            annotated = add_model_overlay(annotated, model_name)
+
+            writer.write(annotated)
+    finally:
+        writer.release()
+        cap.release()
+
+    try:
+        shutil.copyfile(output_path, 'output.mp4')
+    except Exception:
+        pass
+
+    return folder_name
 
 
 def get_file_extension(filename):

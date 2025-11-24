@@ -17,7 +17,11 @@ import cv2
 # Import backend processing modules
 from backend.model_manager import get_model, preload_default_model, register_custom_model, list_models
 from backend.image_video_processor import (
-    process_image, process_video, is_image_file, is_video_file
+    process_image,
+    process_video,
+    is_image_file,
+    is_video_file,
+    annotate_detections,
 )
 from backend.single_camera import get_webcam_frame
 from backend.dual_camera import get_dual_webcam_frame
@@ -317,7 +321,7 @@ def process_video_stream():
                 # Run inference on the frame using the resolved model
                 try:
                     results = resolved_model(frame)
-                    res_plotted = results[0].plot()
+                    res_plotted = annotate_detections(frame, results[0])
                 except Exception as e:
                     print('inference error:', e)
                     res_plotted = frame

@@ -6,7 +6,7 @@ from aiortc.mediastreams import MediaStreamTrack
 from av import VideoFrame
 
 from backend.model_manager import get_model, list_models
-from backend.image_video_processor import add_model_overlay
+from backend.image_video_processor import add_model_overlay, annotate_detections
 
 
 relay = MediaRelay()
@@ -48,9 +48,7 @@ class YOLOTransformTrack(MediaStreamTrack):
         count = len(boxes) if boxes is not None else 0
         print(f"[WebRTC] {self.model_name} detections: {count}")
 
-        annotated = results[0].plot()
-        if annotated is None:
-            annotated = image
+        annotated = annotate_detections(image, results[0])
 
         try:
             annotated = add_model_overlay(annotated, self.model_name)

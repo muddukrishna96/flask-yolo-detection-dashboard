@@ -7,7 +7,7 @@ import time
 import cv2
 import numpy as np
 from backend.model_manager import get_model
-from backend.image_video_processor import add_model_overlay
+from backend.image_video_processor import add_model_overlay, annotate_detections
 
 
 def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
@@ -56,8 +56,7 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
             if m0:
                 try:
                     results0 = m0(frame0)
-                    res_plotted0 = results0[0].plot()
-                    # Add stylish model overlay
+                    res_plotted0 = annotate_detections(frame0, results0[0])
                     res_plotted0 = add_model_overlay(res_plotted0, model0)
                 except Exception:
                     res_plotted0 = frame0
@@ -68,8 +67,7 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt'):
             if m1:
                 try:
                     results1 = m1(frame1)
-                    res_plotted1 = results1[0].plot()
-                    # Add stylish model overlay
+                    res_plotted1 = annotate_detections(frame1, results1[0])
                     res_plotted1 = add_model_overlay(res_plotted1, model1)
                 except Exception:
                     res_plotted1 = frame1
