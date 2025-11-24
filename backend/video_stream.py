@@ -52,31 +52,18 @@ def stream_file_mp4_as_mjpeg(mp4_path):
         time.sleep(0.03)
 
 
-def find_latest_video_folder():
-    """
-    Find the most recently created folder in runs/detect.
-    
-    Returns:
-        str: Name of the latest subfolder
-    """
-    folder_path = os.path.join(os.getcwd(), 'runs', 'detect')
+def find_latest_video_folder(task_dir: str = 'detect'):
+    """Find the most recently created folder within a task directory."""
+    folder_path = os.path.join(os.getcwd(), 'runs', task_dir)
     subfolders = [f for f in os.listdir(folder_path) 
                   if os.path.isdir(os.path.join(folder_path, f))]
     latest_subfolder = max(subfolders, key=lambda x: os.path.getctime(os.path.join(folder_path, x)))
     return latest_subfolder
 
 
-def get_video_from_folder(folder):
-    """
-    Get the first MP4 file from a specific runs/detect subfolder.
-    
-    Args:
-        folder: Subfolder name in runs/detect
-        
-    Returns:
-        str: Full path to the mp4 file, or None if not found
-    """
-    folder_dir = os.path.join(os.getcwd(), 'runs', 'detect', folder)
+def get_video_from_folder(folder, task_dir: str = 'detect'):
+    """Return the first MP4 from the given task folder."""
+    folder_dir = os.path.join(os.getcwd(), 'runs', task_dir, folder)
     if os.path.isdir(folder_dir):
         mp4s = [f for f in os.listdir(folder_dir) if f.lower().endswith('.mp4')]
         if mp4s:

@@ -158,8 +158,139 @@ def annotate_detections(image, prediction, color=(0, 255, 255)):
     return annotated
 
 
-def _create_detection_run_folder(prefix: str = 'detect'):
-    base_dir = Path(os.getcwd()) / 'runs' / 'detect'
+def annotate_segmentation(image, prediction, mask_alpha: float = 0.45):
+    """Apply segmentation masks with neon styling."""
+
+    if image is None or prediction is None:
+        return image
+
+    annotated = image.copy()
+    boxes = getattr(prediction, 'boxes', None)
+    masks = getattr(prediction, 'masks', None)
+
+    xyxy = None
+    if boxes is not None and len(boxes) > 0:
+        xyxy = boxes.xyxy
+        if hasattr(xyxy, 'cpu'):
+            xyxy = xyxy.cpu()
+        xyxy = np.asarray(xyxy)
+    else:
+        xyxy = np.zeros((0, 4), dtype=np.float32)
+
+    confs = getattr(boxes, 'conf', None)
+    if confs is not None and hasattr(confs, 'cpu'):
+        confs = confs.cpu().numpy()
+    elif confs is not None:
+        confs = np.asarray(confs)
+
+    classes = getattr(boxes, 'cls', None)
+    if classes is not None and hasattr(classes, 'cpu'):
+        classes = classes.cpu().numpy().astype(int)
+    elif classes is not None:
+        classes = np.asarray(classes).astype(int)
+
+    names = getattr(prediction, 'names', None)
+    if names is None:
+        model_ref = getattr(prediction, 'model', None)
+        names = getattr(model_ref, 'names', None)
+
+    mask_data = None
+    if masks is not None and getattr(masks, 'data', None) is not None:
+        mask_data = masks.data
+        if hasattr(mask_data, 'cpu'):
+            mask_data = mask_data.cpu().numpy()
+        else:
+            mask_data = np.asarray(mask_data)
+    else:
+        mask_data = np.zeros((0, image.shape[0], image.shape[1]), dtype=np.uint8)
+
+    height, width = annotated.shape[:2]
+    font = cv2.FONT_HERSHEY_DUPLEX
+    base_scale = 0.6
+    base_thickness = 2
+
+    prepared_masks = []
+    if mask_data is not None and len(mask_data):
+        for mask in mask_data:
+            if mask.shape[-2:] != (height, width):
+                resized = cv2.resize(mask.astype(np.float32), (width, height), interpolation=cv2.INTER_NEAREST)
+            else:
+                resized = mask
+            prepared_masks.append((resized > 0.5).astype(np.uint8))
+
+    for idx, coords in enumerate(xyxy):
+        x1, y1, x2, y2 = coords
+        x1 = int(max(0, min(round(x1), width - 1)))
+        y1 = int(max(0, min(round(y1), height - 1)))
+        x2 = int(max(0, min(round(x2), width - 1)))
+        y2 = int(max(0, min(round(y2), height - 1)))
+
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        class_id = None
+        if classes is not None and idx < len(classes):
+            class_id = int(classes[idx])
+
+        box_color = _get_color_for_class(class_id)
+
+        if idx < len(prepared_masks):
+            mask = prepared_masks[idx]
+            if mask is not None:
+                color_arr = np.zeros_like(annotated, dtype=np.uint8)
+                color_arr[:] = box_color
+                mask_bool = mask.astype(bool)
+                annotated = np.where(mask_bool[..., None],
+                                      (annotated * (1 - mask_alpha) + color_arr * mask_alpha).astype(np.uint8),
+                                      annotated)
+
+                try:
+                    contours, _ = cv2.findContours((mask * 255).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cv2.drawContours(annotated, contours, -1, box_color, 2)
+                except Exception:
+                    pass
+
+        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color)
+
+        label_parts = []
+        if class_id is not None:
+            if isinstance(names, dict):
+                label_parts.append(str(names.get(class_id, class_id)))
+            elif isinstance(names, (list, tuple)) and 0 <= class_id < len(names):
+                label_parts.append(str(names[class_id]))
+            else:
+                label_parts.append(str(class_id))
+
+        if confs is not None and idx < len(confs):
+            label_parts.append(f"{confs[idx]:.2f}")
+
+        if label_parts:
+            label_text = " ".join(label_parts)
+            (text_w, text_h), baseline = cv2.getTextSize(label_text, font, base_scale, base_thickness)
+
+            text_x = x1 + 8
+            text_y = y1 - 12
+            if text_y - text_h - baseline < 0:
+                text_y = y1 + text_h + 12
+
+            rect_start = (max(text_x - 6, 0), max(text_y - text_h - 6, 0))
+            rect_end = (min(text_x + text_w + 6, width - 1), min(text_y + 6, height - 1))
+
+            accent_color = box_color if sum(box_color) > 255 else (255, 255, 255)
+            cv2.rectangle(annotated, rect_start, rect_end, (0, 0, 0), -1)
+            cv2.putText(annotated, label_text, (text_x, text_y), font, base_scale, accent_color, base_thickness, cv2.LINE_AA)
+
+    return annotated
+
+
+def annotate_frame(image, prediction, task: str = 'detection'):
+    if task == 'segmentation':
+        return annotate_segmentation(image, prediction)
+    return annotate_detections(image, prediction)
+
+
+def _create_run_folder(task_dir: str, prefix: str):
+    base_dir = Path(os.getcwd()) / 'runs' / task_dir
     base_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
     folder_name = f"{prefix}_{timestamp}"
@@ -256,7 +387,7 @@ def is_video_file(filename):
     return ext in SUPPORTED_VIDEO_EXTENSIONS
 
 
-def process_image(filepath, model_name='yolov8n.pt'):
+def process_image(filepath, model_name='yolov8n.pt', task: str = 'detection'):
     """
     Process an image file with YOLO detection.
     
@@ -278,13 +409,15 @@ def process_image(filepath, model_name='yolov8n.pt'):
     results = model(img, verbose=False)
     prediction = results[0]
 
-    annotated = annotate_detections(img, prediction)
+    annotated = annotate_frame(img, prediction, task=task)
     annotated = add_model_overlay(annotated, model_name)
 
-    folder_name, folder_path = _create_detection_run_folder('image')
+    task_dir = 'detect' if task == 'detection' else 'segment'
+    folder_name, folder_path = _create_run_folder(task_dir, 'image')
     original_name = Path(filepath).stem
     extension = Path(filepath).suffix or '.jpg'
-    processed_filename = f"{original_name}_detected{extension}"
+    suffix = 'detected' if task == 'detection' else 'segmented'
+    processed_filename = f"{original_name}_{suffix}{extension}"
     processed_path = folder_path / processed_filename
 
     cv2.imwrite(str(processed_path), annotated)
@@ -292,7 +425,7 @@ def process_image(filepath, model_name='yolov8n.pt'):
     return folder_name, processed_filename
 
 
-def process_video(filepath, model_name='yolov8n.pt'):
+def process_video(filepath, model_name='yolov8n.pt', task: str = 'detection'):
     """
     Process a video file with YOLO detection frame by frame.
     
@@ -316,9 +449,11 @@ def process_video(filepath, model_name='yolov8n.pt'):
 
     model = get_model(model_name)
 
-    folder_name, folder_path = _create_detection_run_folder('video')
+    task_dir = 'detect' if task == 'detection' else 'segment'
+    folder_name, folder_path = _create_run_folder(task_dir, 'video')
     video_name = Path(filepath).stem or 'processed'
-    output_path = folder_path / f"{video_name}_detected.mp4"
+    suffix = 'detected' if task == 'detection' else 'segmented'
+    output_path = folder_path / f"{video_name}_{suffix}.mp4"
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writer = cv2.VideoWriter(str(output_path), fourcc, fps, (frame_width, frame_height))
@@ -330,7 +465,7 @@ def process_video(filepath, model_name='yolov8n.pt'):
                 break
 
             results = model(frame, verbose=False)
-            annotated = annotate_detections(frame, results[0])
+            annotated = annotate_frame(frame, results[0], task=task)
             annotated = add_model_overlay(annotated, model_name)
 
             writer.write(annotated)

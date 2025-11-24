@@ -1,3 +1,4 @@
+{% set current_task = selected_task or 'detection' %}
   <!-- Main Sidebar Container -->
   <aside class="main-sidebar sidebar-dark-primary elevation-4">
   <!-- Brand Logo -->
@@ -41,25 +42,25 @@
             <ul class="nav nav-treeview" id="tasks-menu" style="display:block;">
               <li class="nav-item px-3 pt-2">
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="taskOption" id="task-detection" value="detection">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-detection" value="detection" {% if current_task == 'detection' %}checked{% endif %}>
                   <label class="form-check-label" for="task-detection">Object detection</label>
                 </div>
               </li>
               <li class="nav-item px-3">
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="taskOption" id="task-segmentation" value="segmentation">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-segmentation" value="segmentation" {% if current_task == 'segmentation' %}checked{% endif %}>
                   <label class="form-check-label" for="task-segmentation">Segmentation</label>
                 </div>
               </li>
               <li class="nav-item px-3">
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="taskOption" id="task-pose" value="pose">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-pose" value="pose" {% if current_task == 'pose' %}checked{% endif %}>
                   <label class="form-check-label" for="task-pose">Pose detection</label>
                 </div>
               </li>
               <li class="nav-item px-3 pb-3">
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="taskOption" id="task-classification" value="classification">
+                  <input class="form-check-input" type="radio" name="taskOption" id="task-classification" value="classification" {% if current_task == 'classification' %}checked{% endif %}>
                   <label class="form-check-label" for="task-classification">Classification</label>
                 </div>
               </li>

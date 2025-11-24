@@ -5,8 +5,8 @@ from aiortc.contrib.media import MediaRelay
 from aiortc.mediastreams import MediaStreamTrack
 from av import VideoFrame
 
-from backend.model_manager import get_model, list_models
-from backend.image_video_processor import add_model_overlay, annotate_detections
+from backend.model_manager import get_model
+from backend.image_video_processor import add_model_overlay, annotate_frame
 
 
 relay = MediaRelay()
@@ -18,12 +18,13 @@ class YOLOTransformTrack(MediaStreamTrack):
 
     kind = "video"
 
-    def __init__(self, track: MediaStreamTrack, model_name: str):
+    def __init__(self, track: MediaStreamTrack, model_name: str, task: str = 'detection', model=None):
         super().__init__()  # initializes timestamp-related state
         self.track = track
         self.model_name = model_name
+        self.task = task
         # Fetch (or load) the model once; model_manager caches subsequent requests
-        self.model = get_model(model_name)
+        self.model = model or get_model(model_name)
 
     async def recv(self) -> VideoFrame:
         frame = await self.track.recv()
@@ -48,7 +49,7 @@ class YOLOTransformTrack(MediaStreamTrack):
         count = len(boxes) if boxes is not None else 0
         print(f"[WebRTC] {self.model_name} detections: {count}")
 
-        annotated = annotate_detections(image, results[0])
+        annotated = annotate_frame(image, results[0], task=self.task)
 
         try:
             annotated = add_model_overlay(annotated, self.model_name)
@@ -58,9 +59,11 @@ class YOLOTransformTrack(MediaStreamTrack):
         return annotated
 
 
-async def _build_peer_connection(model_name: str) -> RTCPeerConnection:
-    if model_name not in list_models():
-        raise ValueError(f"Model '{model_name}' is not available on the server")
+async def _build_peer_connection(model_name: str, task: str = 'detection') -> RTCPeerConnection:
+    try:
+        model = get_model(model_name)
+    except ValueError as exc:
+        raise ValueError(f"Model '{model_name}' is not available on the server") from exc
 
     pc = RTCPeerConnection()
     peer_connections.add(pc)
@@ -76,7 +79,7 @@ async def _build_peer_connection(model_name: str) -> RTCPeerConnection:
         if track.kind != "video":
             return
 
-        local_video = YOLOTransformTrack(relay.subscribe(track), model_name)
+        local_video = YOLOTransformTrack(relay.subscribe(track), model_name, task=task, model=model)
         pc.addTrack(local_video)
 
         @track.on("ended")
@@ -108,10 +111,10 @@ async def _cleanup_peer(pc: RTCPeerConnection) -> None:
     await pc.close()
 
 
-async def create_answer_for_offer(sdp: str, offer_type: str, model_name: str) -> RTCSessionDescription:
+async def create_answer_for_offer(sdp: str, offer_type: str, model_name: str, task: str = 'detection') -> RTCSessionDescription:
     """Handle a browser offer and return the answer with processed video."""
 
-    pc = await _build_peer_connection(model_name)
+    pc = await _build_peer_connection(model_name, task)
 
     offer = RTCSessionDescription(sdp=sdp, type=offer_type)
     await pc.setRemoteDescription(offer)

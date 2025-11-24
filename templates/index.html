@@ -161,7 +161,8 @@
             
 			<!-- AI code - LEFT PANEL VISIBLE WORKFLOW -->
 
-			<form id="predict-form" class="form-signin col-lg-12" method="post" enctype="multipart/form-data" name="form1">
+  		<form id="predict-form" class="form-signin col-lg-12" method="post" enctype="multipart/form-data" name="form1">
+    <input type="hidden" name="task" id="selected-task-input" value="{{ selected_task or 'detection' }}">
 
   <div style="max-width:100%; margin:auto; text-align:left; padding:12px 8px;">
     <h4 class="h5 mb-2 font-weight-normal">1) Select Model</h4>
@@ -390,7 +391,7 @@
               <div class="card-header">
                 <h3 class="card-title">
                   <i class="fas fa-chart-pie mr-1"></i>
-                  YOLO Object Detection Results
+                  YOLO {{ 'Segmentation' if selected_task == 'segmentation' else 'Object Detection' }} Results
                 </h3>
 				
                 
@@ -432,7 +433,9 @@
     'image_url': image_url | default('', true),
     'video_present': video_present | default(false, true),
     'video_folder': video_folder | default('', true),
-    'server_video_stream_url': server_video_stream_url | default('', true)
+    'server_video_stream_url': server_video_stream_url | default('', true),
+    'selected_task': selected_task | default('detection', true),
+    'selected_model': selected_model | default('yolov8n.pt', true)
   }|tojson }}
 </script>
 
@@ -451,6 +454,8 @@ var server_image_url = serverContext.image_url || '';
 var server_video_present = !!serverContext.video_present;
 var server_video_folder = serverContext.video_folder || '';
 var server_video_stream_url = serverContext.server_video_stream_url || '';
+var currentTask = serverContext.selected_task || 'detection';
+var currentModel = serverContext.selected_model || 'yolov8n.pt';
 
 var webrtcManager = {
   sessions: [],
@@ -471,6 +476,28 @@ var webrtcManager = {
     this.sessions = [];
   }
 };
+
+function syncTaskState(taskValue) {
+  currentTask = taskValue || currentTask || 'detection';
+  var hiddenTaskField = document.getElementById('selected-task-input');
+  if (hiddenTaskField) {
+    hiddenTaskField.value = currentTask;
+  }
+}
+
+function getCurrentTask() {
+  var selected = document.querySelector('input[name="taskOption"]:checked');
+  if (selected && selected.value) {
+    return selected.value;
+  }
+  return currentTask || 'detection';
+}
+
+function getFallbackModel() {
+  return currentModel || 'yolov8n.pt';
+}
+
+syncTaskState(currentTask);
 
 function closeWebRTCSingleSession(session, hideVideo) {
   if (!session) {
@@ -622,6 +649,7 @@ async function getDeviceIdForIndex(camIndex) {
 
 async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFrame, options) {
   options = options || {};
+  var taskName = options.task || getCurrentTask();
   var PeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
 
   if (!window.isSecureContext) {
@@ -694,7 +722,7 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
     var response = await fetch("{{ url_for('webrtc_offer') }}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model })
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName })
     });
 
     var payload = await response.json();
@@ -753,6 +781,7 @@ async function startDualWebRTCSession(model0, deviceId0, model1, deviceId1) {
 async function startSplitWebRTCSession(model0, model1, camIndex) {
   var remoteA = document.getElementById('webrtc-remote');
   var remoteB = document.getElementById('webrtc-remote-secondary');
+  var taskName = getCurrentTask();
 
   if (!remoteA || !remoteB) {
     throw new Error('Split view video elements not found.');
@@ -800,8 +829,8 @@ async function startSplitWebRTCSession(model0, model1, camIndex) {
 
   try {
     await Promise.all([
-      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA }),
-      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB })
+      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA, task: taskName }),
+      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB, task: taskName })
     ]);
   } catch (err) {
     streamA.getTracks().forEach(function(track){ try { track.stop(); } catch (stopErr) { console.warn('stop streamA track failed', stopErr); } });
@@ -867,8 +896,22 @@ function showUploadedResult() {
     }
   }
   else if (server_video_present) {
-    var feedUrl = "{{ url_for('video_feed') }}" + (server_video_folder ? "?folder=" + server_video_folder : "");
-    startLegacyStream(feedUrl);
+    try {
+      var feedUrlObj = new URL("{{ url_for('video_feed') }}", window.location.origin);
+      if (server_video_folder) {
+        feedUrlObj.searchParams.set('folder', server_video_folder);
+      }
+      feedUrlObj.searchParams.set('task', getCurrentTask());
+      startLegacyStream(feedUrlObj.toString());
+    } catch (err) {
+      var fallbackUrl = "{{ url_for('video_feed') }}";
+      if (server_video_folder) {
+        fallbackUrl += "?folder=" + encodeURIComponent(server_video_folder) + "&task=" + encodeURIComponent(getCurrentTask());
+      } else {
+        fallbackUrl += "?task=" + encodeURIComponent(getCurrentTask());
+      }
+      startLegacyStream(fallbackUrl);
+    }
   }
   else if (server_video_stream_url) {
     startLegacyStream(server_video_stream_url);
@@ -879,7 +922,7 @@ function showUploadedResult() {
 function showWebcamModal() {
   // For inline workflow: select webcam input and pre-select models from main selection (if any)
   var sel = document.querySelector('input[name="model"]:checked');
-  var selectedModel = sel ? sel.value : 'yolov8n.pt';
+  var selectedModel = sel ? sel.value : getFallbackModel();
 
   // Pre-select single/dual model radios to the chosen model where possible
   var singleRadio = document.querySelector('input[name="single_model"][value="' + selectedModel + '"]');
@@ -1075,6 +1118,7 @@ async function startSelectedWebcam() {
   var spinnerText = document.getElementById('spinner-text');
   var img = document.getElementById('result-display');
   var vimg = document.getElementById('video-display');
+  var fallbackModel = getFallbackModel();
 
   stopWebRTCSession(true);
   hideRemoteVideos();
@@ -1107,8 +1151,8 @@ async function startSelectedWebcam() {
       if (isSplit) {
         var splitModel0Radio = document.querySelector('input[name="dual_model0"]:checked');
         var splitModel1Radio = document.querySelector('input[name="dual_model1"]:checked');
-        var splitModel0 = splitModel0Radio ? splitModel0Radio.value : 'yolov8n.pt';
-        var splitModel1 = splitModel1Radio ? splitModel1Radio.value : 'yolov8n.pt';
+        var splitModel0 = splitModel0Radio ? splitModel0Radio.value : fallbackModel;
+        var splitModel1 = splitModel1Radio ? splitModel1Radio.value : fallbackModel;
         var splitCamIndex = await promptForCameraIndex();
         splitModeRequested = true;
         fallbackModel0 = splitModel0;
@@ -1123,7 +1167,7 @@ async function startSelectedWebcam() {
       }
 
       var selModel = document.querySelector('input[name="single_model"]:checked');
-      var model = selModel ? selModel.value : 'yolov8n.pt';
+      var model = selModel ? selModel.value : fallbackModel;
       fallbackModel = model;
 
       var camIndex = await promptForCameraIndex();
@@ -1149,8 +1193,8 @@ async function startSelectedWebcam() {
     } else {
       var dualModel0Radio = document.querySelector('input[name="dual_model0"]:checked');
       var dualModel1Radio = document.querySelector('input[name="dual_model1"]:checked');
-      var model0 = dualModel0Radio ? dualModel0Radio.value : 'yolov8n.pt';
-      var model1 = dualModel1Radio ? dualModel1Radio.value : 'yolov8n.pt';
+      var model0 = dualModel0Radio ? dualModel0Radio.value : fallbackModel;
+      var model1 = dualModel1Radio ? dualModel1Radio.value : fallbackModel;
       fallbackModel0 = model0;
       fallbackModel1 = model1;
 
@@ -1251,7 +1295,13 @@ window.addEventListener('load', function(){
     if (hasImage || hasVideo || hasStream) {
       showDetectionView();
     } else {
-      showHomeView();
+      var taskNow = getCurrentTask();
+      if (taskNow === 'detection' || taskNow === 'segmentation') {
+        hideUnavailable();
+        showDetectionView();
+      } else {
+        showHomeView();
+      }
     }
   } catch(e) { try { showHomeView(); } catch(err){} }
 });
@@ -1319,18 +1369,53 @@ document.addEventListener('DOMContentLoaded', function(){
   if (homeLink) homeLink.addEventListener('click', function(e){ e.preventDefault(); showHomeView(); });
   if (contactLink) contactLink.addEventListener('click', function(e){ e.preventDefault(); showContactView(); });
 
-  // Task radio selection: show detection dashboard when object detection selected
-    var taskRadios = document.querySelectorAll('input[name="taskOption"]');
-    taskRadios.forEach(function(r){ r.addEventListener('change', function(){
-        if (!this.checked) return;
-        if (this.value === 'detection') {
-          hideUnavailable();
-          showDetectionView();
-        } else {
-          // show unavailable message for other tasks
-          showUnavailable(this.value);
+  // Task radio selection: reload for detection/segmentation, show placeholder otherwise
+  var taskRadios = document.querySelectorAll('input[name="taskOption"]');
+  var initialTask = currentTask;
+
+  syncTaskState(initialTask);
+
+  taskRadios.forEach(function(radio) {
+    if (radio.value === initialTask) {
+      radio.checked = true;
+    }
+
+    radio.addEventListener('change', function() {
+      if (!this.checked) {
+        return;
+      }
+
+      var selectedValue = this.value;
+      syncTaskState(selectedValue);
+
+      if (selectedValue === 'detection' || selectedValue === 'segmentation') {
+        hideUnavailable();
+        showDetectionView();
+
+        if (selectedValue !== initialTask) {
+          try {
+            var targetUrl = new URL(window.location.href);
+            targetUrl.searchParams.set('task', selectedValue);
+            targetUrl.searchParams.delete('model');
+            window.location.href = targetUrl.toString();
+          } catch (err) {
+            window.location.href = window.location.pathname + '?task=' + encodeURIComponent(selectedValue);
+          }
         }
-    }); });
+      } else {
+        showUnavailable(selectedValue);
+      }
+    });
+  });
+
+  var primaryModelRadios = document.querySelectorAll('input[name="model"]');
+  primaryModelRadios.forEach(function(radio) {
+    radio.addEventListener('change', function() {
+      if (this.checked) {
+        currentModel = this.value;
+      }
+    });
+  });
 
     // Wire unavailable OK button
     var okBtn = document.getElementById('unavailable-ok');
@@ -1506,6 +1591,7 @@ document.getElementById('predict-form').addEventListener('submit', function(e){
       fd.append('model_file', file.files[0]);
       fd.append('model_name', document.getElementById('model_name').value || '');
       fd.append('disclaimer', document.getElementById('disclaimer_inline').checked ? 'on' : '');
+      fd.append('task', getCurrentTask());
       uploadBtn.disabled = true; uploadBtn.textContent = 'Uploading...';
       fetch('/upload_model', { method: 'POST', body: fd }).then(function(r){ return r.text(); }).then(function(){ location.reload(); }).catch(function(err){ alert('Upload failed: '+err); uploadBtn.disabled=false; uploadBtn.textContent='Upload'; });
     });

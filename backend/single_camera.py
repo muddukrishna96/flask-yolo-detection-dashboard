@@ -7,10 +7,10 @@ import time
 import cv2
 import numpy as np
 from backend.model_manager import get_model
-from backend.image_video_processor import add_model_overlay, annotate_detections
+from backend.image_video_processor import add_model_overlay, annotate_frame
 
 
-def get_webcam_frame(model_name='yolov8n.pt', camera_index=0):
+def get_webcam_frame(model_name='yolov8n.pt', camera_index=0, task: str = 'detection'):
     """
     Capture frames from default webcam, run YOLO inference and yield MJPEG frames.
     
@@ -43,7 +43,7 @@ def get_webcam_frame(model_name='yolov8n.pt', camera_index=0):
             if model:
                 try:
                     results = model(frame)
-                    res_plotted = annotate_detections(frame, results[0])
+                    res_plotted = annotate_frame(frame, results[0], task=task)
                     res_plotted = add_model_overlay(res_plotted, model_name)
                 except Exception:
                     res_plotted = frame
@@ -61,7 +61,7 @@ def get_webcam_frame(model_name='yolov8n.pt', camera_index=0):
         cap.release()
 
 
-def get_split_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', camera_index=0):
+def get_split_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', camera_index=0, task: str = 'detection'):
     """
     Capture frames from a single webcam, run two different YOLO models on the same frame,
     and yield a vertically stacked MJPEG stream showing both model outputs.
@@ -100,7 +100,7 @@ def get_split_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', camera_inde
             if m0:
                 try:
                     r0 = m0(frame)
-                    plotted0 = annotate_detections(frame, r0[0])
+                    plotted0 = annotate_frame(frame, r0[0], task=task)
                     plotted0 = add_model_overlay(plotted0, model0)
                 except Exception:
                     plotted0 = frame
@@ -111,7 +111,7 @@ def get_split_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', camera_inde
             if m1:
                 try:
                     r1 = m1(frame)
-                    plotted1 = annotate_detections(frame, r1[0])
+                    plotted1 = annotate_frame(frame, r1[0], task=task)
                     plotted1 = add_model_overlay(plotted1, model1)
                 except Exception:
                     plotted1 = frame

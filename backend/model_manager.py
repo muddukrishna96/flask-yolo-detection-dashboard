@@ -4,6 +4,8 @@ Handles model loading, validation, and caching.
 """
 
 import os
+from typing import Iterable, List
+
 from ultralytics import YOLO
 
 
@@ -13,15 +15,32 @@ model_cache = {}
 # Keep track of custom uploaded model names (registered at runtime)
 custom_model_names = set()
 
-# List of allowed models for security (updated per user request)
-ALLOWED_MODELS = {
+# Detection models (default task)
+ALLOWED_DETECTION_MODELS = {
     'yolov8n.pt',
     'yolov9t.pt',
     'yolov10n.pt',
     'yolo11n.pt',
     'yolo12n.pt',
-    'yolov8n-oiv7.pt'
+    'yolov8n-oiv7.pt',
 }
+
+# Segmentation models
+ALLOWED_SEGMENTATION_MODELS = {
+    'yolo11n-seg.pt',
+    'yolov8n-seg.pt',
+    'yolov9c-seg.pt',
+}
+
+
+def _combine_models(*groups: Iterable[str]) -> set[str]:
+    merged = set()
+    for grp in groups:
+        merged.update(grp)
+    return merged
+
+
+ALLOWED_MODELS = _combine_models(ALLOWED_DETECTION_MODELS, ALLOWED_SEGMENTATION_MODELS)
 
 
 def get_model(model_name: str):
@@ -83,9 +102,20 @@ def register_custom_model(name: str, model_instance) -> None:
 
 def list_models():
     """Return a sorted list of available model names (built-ins + uploaded)."""
-    built = sorted(list(ALLOWED_MODELS))
+    # For backward compatibility default to detection models + custom uploads
+    built = sorted(list(ALLOWED_DETECTION_MODELS))
     customs = sorted(list(custom_model_names))
     return built + customs
+
+
+def list_detection_models() -> List[str]:
+    """Return available detection task models."""
+    return sorted(list(ALLOWED_DETECTION_MODELS)) + sorted(list(custom_model_names))
+
+
+def list_segmentation_models() -> List[str]:
+    """Return available segmentation task models."""
+    return sorted(list(ALLOWED_SEGMENTATION_MODELS))
 
 
 def preload_default_model():

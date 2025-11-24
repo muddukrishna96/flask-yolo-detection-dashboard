@@ -12,12 +12,12 @@
         <section class="col-lg-9 connectedSortable">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">Live Webcam Inference (WebRTC)</h3>
+              <h3 class="card-title">Live {{ 'Segmentation' if selected_task == 'segmentation' else 'Detection' }} Webcam Inference (WebRTC)</h3>
             </div>
             <div class="card-body">
               <div class="row mb-3">
                 <div class="col-md-4">
-                  <label for="model-select">Detection model</label>
+                  <label for="model-select">{{ 'Segmentation' if selected_task == 'segmentation' else 'Detection' }} model</label>
                   <select id="model-select" class="form-control">
                     {% for model in models %}
                     <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
@@ -61,7 +61,7 @@
       </div>
       <div class="row">
         <div class="col-lg-3">
-          <a href="{{ url_for('hello_world') }}" class="btn btn-danger">Back to dashboard</a>
+          <a href="{{ url_for('hello_world', task=selected_task) }}" class="btn btn-danger">Back to dashboard</a>
         </div>
       </div>
     </div>
@@ -70,6 +70,7 @@
 
 <script>
 (function () {
+  let activeTask = '{{ selected_task or "detection" }}';
   const modelSelect = document.getElementById('model-select');
   const cameraSelect = document.getElementById('camera-select');
   const startBtn = document.getElementById('start-session');
@@ -80,6 +81,34 @@
 
   let pc = null;
   let localStream = null;
+
+  function attachTaskRadios() {
+    const taskRadios = document.querySelectorAll('input[name="taskOption"]');
+    taskRadios.forEach((radio) => {
+      if (radio.value === activeTask) {
+        radio.checked = true;
+      }
+
+      radio.addEventListener('change', function () {
+        if (!this.checked) {
+          return;
+        }
+
+        activeTask = this.value;
+        if (activeTask === 'detection' || activeTask === 'segmentation') {
+          try {
+            const targetUrl = new URL(window.location.href);
+            targetUrl.searchParams.set('task', activeTask);
+            window.location.href = targetUrl.toString();
+          } catch (err) {
+            window.location.href = window.location.pathname + '?task=' + encodeURIComponent(activeTask);
+          }
+        } else {
+          updateStatus('Selected task is not yet available.', 'warning');
+        }
+      });
+    });
+  }
 
   function updateStatus(message, level) {
     statusBanner.textContent = message;
@@ -151,7 +180,7 @@
   const response = await fetch("{{ url_for('webrtc_offer') }}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: selectedModel })
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: selectedModel, task: activeTask })
     });
 
     const payload = await response.json();
@@ -243,6 +272,7 @@
   });
 
   populateCameras();
+  attachTaskRadios();
 })();
 </script>
 {% endblock content %}

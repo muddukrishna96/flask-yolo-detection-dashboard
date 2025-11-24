@@ -8,20 +8,26 @@ import argparse
 import asyncio
 import atexit
 import os
-import tempfile
 import threading
+from typing import Optional
 from flask import Flask, render_template, request, url_for, Response, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 import cv2
 
 # Import backend processing modules
-from backend.model_manager import get_model, preload_default_model, register_custom_model, list_models
+from backend.model_manager import (
+    get_model,
+    preload_default_model,
+    register_custom_model,
+    list_models,
+    list_detection_models,
+    list_segmentation_models,
+)
 from backend.image_video_processor import (
     process_image,
-    process_video,
     is_image_file,
     is_video_file,
-    annotate_detections,
+    annotate_frame,
 )
 from backend.single_camera import get_webcam_frame
 from backend.dual_camera import get_dual_webcam_frame
@@ -31,6 +37,36 @@ from backend.webrtc_session import create_answer_for_offer, close_all_peers
 
 # Flask app initialization
 app = Flask(__name__)
+
+
+def _normalize_task(task_value: Optional[str]) -> str:
+    task = (task_value or 'detection').strip().lower()
+    return 'segmentation' if task == 'segmentation' else 'detection'
+
+
+def _models_for_task(task: str) -> list[str]:
+    if task == 'segmentation':
+        return list_segmentation_models()
+    return list_detection_models()
+
+
+def _default_model_for_task(task: str, models: Optional[list[str]] = None) -> str:
+    available = models if models is not None else _models_for_task(task)
+    fallback = 'yolov8n.pt' if task == 'detection' else 'yolo11n-seg.pt'
+    if fallback in available:
+        return fallback
+    if available:
+        return available[0]
+    return 'yolov8n.pt'
+
+
+def _select_model_for_task(model_name: Optional[str], task: str, models: Optional[list[str]] = None) -> str:
+    available = models if models is not None else _models_for_task(task)
+    if model_name:
+        candidate = model_name.strip()
+        if candidate in available:
+            return candidate
+    return _default_model_for_task(task, available)
 
 
 _webrtc_loop = asyncio.new_event_loop()
@@ -54,7 +90,15 @@ os.makedirs(os.path.join(os.path.dirname(__file__), 'uploads'), exist_ok=True)
 @app.route("/")
 def hello_world():
     """Render main dashboard page."""
-    return render_template('index.html', models=list_models(), selected_model='yolov8n.pt')
+    task = _normalize_task(request.args.get('task'))
+    models_for_task = _models_for_task(task)
+    selected_model = _select_model_for_task(request.args.get('model'), task, models_for_task)
+    return render_template(
+        'index.html',
+        models=models_for_task,
+        selected_model=selected_model,
+        selected_task=task,
+    )
 
     
 @app.route("/", methods=["GET", "POST"])
@@ -66,72 +110,115 @@ def predict_img():
         Rendered template with detection results
     """
     if request.method == "POST":
-        if 'file' in request.files:
-            f = request.files['file']
-            
-            # Validate file was selected
-            if f.filename == '':
-                message = "No file selected. Please choose an image or video file."
-                return render_template('index.html', image_url='', video_present=False, 
-                                     selected_model='yolov8n.pt', message=message, models=list_models())
-            
-            # Validate file format BEFORE saving
-            if not is_image_file(f.filename) and not is_video_file(f.filename):
-                message = ("Unsupported file format! Only these formats are accepted:<br>"
-                          "<strong>Images:</strong> PNG, JPG, JPEG, BMP, GIF, WebP<br>"
-                          "<strong>Videos:</strong> MP4, AVI, MOV, MKV, FLV, WMV")
-                return render_template('index.html', image_url='', video_present=False, 
-                                     selected_model='yolov8n.pt', message=message, models=list_models())
-            
-            basepath = os.path.dirname(__file__)
-            uploads_dir = os.path.join(basepath, 'uploads')
-            os.makedirs(uploads_dir, exist_ok=True)
-            safe_name = secure_filename(f.filename)
-            filepath = os.path.join(uploads_dir, safe_name)
-            f.save(filepath)
+        task = _normalize_task(request.form.get('task'))
+        models_for_task = _models_for_task(task)
+        default_model = _default_model_for_task(task, models_for_task)
 
-            # Store filename globally for reference (use secure name)
-            global imgpath
-            predict_img.imgpath = safe_name
-            
-            # Determine selected model from form
-            model_name = request.form.get('model', 'yolov8n.pt')
+        uploaded = request.files.get('file')
+        model_value = request.form.get('model')
+        model_name = model_value.strip() if model_value else default_model
 
-            # Validate that the selected model is available (either built-in or uploaded)
-            available = list_models()
-            if model_name not in available:
-                message = (f"Selected model '{model_name}' is not available. "
-                           "Please upload the model or choose one from the dropdown.")
-                return render_template('index.html', image_url='', video_present=False,
-                                       selected_model='yolov8n.pt', message=message, models=available)
-            
-            try:
-                # Check if it's an image file
-                if is_image_file(f.filename):
-                    latest_subfolder, processed_filename = process_image(filepath, model_name)
-                    image_url = url_for('display', folder=latest_subfolder, filename=processed_filename)
-                    return render_template('index.html', image_url=image_url, video_present=False, 
-                                         selected_model=model_name, models=list_models())
-                
-                # Check if it's a video file
-                elif is_video_file(f.filename):
-                    # For videos, stream processed frames as MJPEG so users see per-frame results
-                    # Use the secure filename we saved earlier
-                    stream_url = url_for('process_video_stream', filename=safe_name, model=model_name)
-                    return render_template('index.html', image_url='', video_present=False, 
-                                         server_video_stream_url=stream_url, selected_model=model_name, models=list_models())
-            
-            except Exception as e:
-                # Clean up uploaded file on error
-                if os.path.exists(filepath):
+        if uploaded is None or uploaded.filename == '':
+            message = "No file selected. Please choose an image or video file."
+            selected_model = _select_model_for_task(model_name, task, models_for_task)
+            return render_template(
+                'index.html',
+                image_url='',
+                video_present=False,
+                selected_model=selected_model,
+                message=message,
+                models=models_for_task,
+                selected_task=task,
+            )
+
+        if not is_image_file(uploaded.filename) and not is_video_file(uploaded.filename):
+            message = ("Unsupported file format! Only these formats are accepted:<br>"
+                       "<strong>Images:</strong> PNG, JPG, JPEG, BMP, GIF, WebP<br>"
+                       "<strong>Videos:</strong> MP4, AVI, MOV, MKV, FLV, WMV")
+            selected_model = _select_model_for_task(model_name, task, models_for_task)
+            return render_template(
+                'index.html',
+                image_url='',
+                video_present=False,
+                selected_model=selected_model,
+                message=message,
+                models=models_for_task,
+                selected_task=task,
+            )
+
+        basepath = os.path.dirname(__file__)
+        uploads_dir = os.path.join(basepath, 'uploads')
+        os.makedirs(uploads_dir, exist_ok=True)
+        safe_name = secure_filename(uploaded.filename)
+        filepath = os.path.join(uploads_dir, safe_name)
+        uploaded.save(filepath)
+
+        # Store filename globally for reference (use secure name)
+        global imgpath
+        predict_img.imgpath = safe_name
+
+        if model_name not in models_for_task:
+            message = (f"Selected model '{model_name}' is not available. "
+                       "Please upload the model or choose one from the dropdown.")
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            selected_model = _select_model_for_task(model_name, task, models_for_task)
+            return render_template(
+                'index.html',
+                image_url='',
+                video_present=False,
+                selected_model=selected_model,
+                message=message,
+                models=models_for_task,
+                selected_task=task,
+            )
+
+        try:
+            if is_image_file(uploaded.filename):
+                latest_subfolder, processed_filename = process_image(filepath, model_name, task=task)
+                image_url = url_for('display', folder=latest_subfolder, filename=processed_filename, task=task)
+                return render_template(
+                    'index.html',
+                    image_url=image_url,
+                    video_present=False,
+                    selected_model=model_name,
+                    models=models_for_task,
+                    selected_task=task,
+                )
+
+            if is_video_file(uploaded.filename):
+                stream_url = url_for('process_video_stream', filename=safe_name, model=model_name, task=task)
+                return render_template(
+                    'index.html',
+                    image_url='',
+                    video_present=False,
+                    server_video_stream_url=stream_url,
+                    selected_model=model_name,
+                    models=models_for_task,
+                    selected_task=task,
+                )
+        except Exception as e:
+            message = f"Error processing file with model '{model_name}': {str(e)}"
+            if os.path.exists(filepath):
+                try:
                     os.remove(filepath)
-                    
-                message = f"Error processing file with model '{model_name}': {str(e)}"
-                return render_template('index.html', image_url='', video_present=False, 
-                                     selected_model=model_name, message=message, models=list_models())
-    
+                except Exception:
+                    pass
+            return render_template(
+                'index.html',
+                image_url='',
+                video_present=False,
+                selected_model=model_name,
+                message=message,
+                models=models_for_task,
+                selected_task=task,
+            )
+
     # Default GET response
-    return render_template('index.html', selected_model='yolov8n.pt', models=list_models())
+    task = _normalize_task(request.args.get('task'))
+    models_for_task = _models_for_task(task)
+    selected_model = _select_model_for_task(request.args.get('model'), task, models_for_task)
+    return render_template('index.html', selected_model=selected_model, models=models_for_task, selected_task=task)
 
 
 @app.route('/upload_model', methods=['POST'])
@@ -140,8 +227,10 @@ def upload_model():
     Upload a custom .pt model, load it temporarily, register in memory, and make it available for inference.
     This writes the uploaded file to a secure temporary file only while loading and deletes it immediately.
     """
+    task = _normalize_task(request.form.get('task') or request.args.get('task'))
     if 'model_file' not in request.files:
-        return render_template('index.html', message='No model file provided.', models=list_models(), selected_model='yolov8n.pt')
+        return render_template('index.html', message='No model file provided.', models=_models_for_task(task),
+                       selected_model='yolov8n.pt', selected_task=task)
 
     f = request.files['model_file']
     display_name = request.form.get('model_name') or f.filename
@@ -149,20 +238,24 @@ def upload_model():
 
     # Require disclaimer checkbox
     if not disclaimer:
-        return render_template('index.html', message='You must accept the disclaimer before uploading a model.', models=list_models(), selected_model='yolov8n.pt')
+        return render_template('index.html', message='You must accept the disclaimer before uploading a model.',
+                       models=_models_for_task(task), selected_model='yolov8n.pt', selected_task=task)
 
     if f.filename == '':
-        return render_template('index.html', message='No file selected.', models=list_models(), selected_model='yolov8n.pt')
+        return render_template('index.html', message='No file selected.', models=_models_for_task(task),
+                       selected_model='yolov8n.pt', selected_task=task)
 
     # Only accept .pt files for now
     if '.' not in f.filename or f.filename.rsplit('.', 1)[1].lower() != 'pt':
-        return render_template('index.html', message='Only .pt model files are accepted.', models=list_models(), selected_model='yolov8n.pt')
+        return render_template('index.html', message='Only .pt model files are accepted.', models=_models_for_task(task),
+                       selected_model='yolov8n.pt', selected_task=task)
 
     # Enforce size limit (default 200MB)
     data = f.read()
     max_size = 200 * 1024 * 1024
     if len(data) > max_size:
-        return render_template('index.html', message='Model file too large (max 200 MB).', models=list_models(), selected_model='yolov8n.pt')
+        return render_template('index.html', message='Model file too large (max 200 MB).', models=_models_for_task(task),
+                       selected_model='yolov8n.pt', selected_task=task)
 
     tmp_path = None
     try:
@@ -191,9 +284,11 @@ def upload_model():
                 os.remove(saved_path)
         except Exception:
             pass
-        return render_template('index.html', message=f'Failed to load model: {e}', models=list_models(), selected_model='yolov8n.pt')
+        return render_template('index.html', message=f'Failed to load model: {e}', models=_models_for_task(task),
+                               selected_model='yolov8n.pt', selected_task=task)
 
-    return render_template('index.html', message=f"Model '{saved_name}' uploaded and registered.", models=list_models(), selected_model=saved_name)
+    return render_template('index.html', message=f"Model '{saved_name}' uploaded and registered.",
+                           models=_models_for_task(task), selected_model=saved_name, selected_task=task)
 
 
 @app.route('/display/<folder>/<path:filename>')
@@ -208,7 +303,9 @@ def display(folder, filename):
     Returns:
         File from directory or 404
     """
-    base = os.path.join(os.getcwd(), 'runs', 'detect')
+    task = _normalize_task(request.args.get('task'))
+    base_dir = 'detect' if task == 'detection' else 'segment'
+    base = os.path.join(os.getcwd(), 'runs', base_dir)
     directory = os.path.join(base, folder)
     if not os.path.isdir(directory):
         return "Not found", 404
@@ -225,10 +322,18 @@ def process_video_stream():
     """
     filename = request.args.get('filename')
     model_name = request.args.get('model', 'yolov8n.pt')
+    task = _normalize_task(request.args.get('task'))
     if model_name:
         model_name = model_name.strip()
     if not filename:
         return "Missing filename", 400
+
+    allowed_models = _models_for_task(task)
+    if model_name not in allowed_models:
+        choices = ', '.join(allowed_models) if allowed_models else 'None'
+        msg = (f"Model '{model_name}' is not available for {task}. "
+               f"Choose from: {choices}")
+        return (msg, 400)
 
     uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
     filepath = os.path.join(uploads_dir, filename)
@@ -321,7 +426,7 @@ def process_video_stream():
                 # Run inference on the frame using the resolved model
                 try:
                     results = resolved_model(frame)
-                    res_plotted = annotate_detections(frame, results[0])
+                    res_plotted = annotate_frame(frame, results[0], task=task)
                 except Exception as e:
                     print('inference error:', e)
                     res_plotted = frame
@@ -371,8 +476,10 @@ def video_feed():
     Accepts ?folder=<name> parameter to stream from specific runs/detect subfolder.
     """
     folder = request.args.get('folder', None)
+    task = _normalize_task(request.args.get('task'))
+    task_dir = 'detect' if task == 'detection' else 'segment'
     if folder:
-        mp4_path = get_video_from_folder(folder)
+        mp4_path = get_video_from_folder(folder, task_dir=task_dir)
         if mp4_path:
             return Response(stream_file_mp4_as_mjpeg(mp4_path), 
                           mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -384,7 +491,15 @@ def video_feed():
 @app.route('/webcam')
 def webcam_page():
     """Render webcam page with live inference and stop button."""
-    return render_template('webcam.html', models=list_models(), default_model='yolov8n.pt')
+    task = _normalize_task(request.args.get('task'))
+    models_for_task = _models_for_task(task)
+    default_model = _default_model_for_task(task, models_for_task)
+    return render_template(
+        'webcam.html',
+        models=models_for_task,
+        default_model=default_model,
+        selected_task=task,
+    )
 
 
 @app.route('/webrtc/offer', methods=['POST'])
@@ -395,13 +510,18 @@ def webrtc_offer() -> Response:
     sdp = payload.get('sdp')
     offer_type = payload.get('type')
     model_name = (payload.get('model') or 'yolov8n.pt').strip()
+    task = _normalize_task(payload.get('task'))
 
     if not sdp or not offer_type:
         return jsonify({'error': 'Invalid SDP payload'}), 400
 
+    allowed_models = _models_for_task(task)
+    if model_name not in allowed_models:
+        return jsonify({'error': f"Model '{model_name}' is not available for {task}."}), 400
+
     try:
-        app.logger.info('Received WebRTC offer for model %s from %s', model_name, request.remote_addr)
-        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name))
+        app.logger.info('Received WebRTC offer for model %s (%s) from %s', model_name, task, request.remote_addr)
+        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task))
     except ValueError as err:
         return jsonify({'error': str(err)}), 400
     except Exception as err:  # pragma: no cover - defensive logging path
@@ -418,8 +538,12 @@ def webcam_feed():
     Accepts ?model=<model_name> parameter to select model.
     """
     model_name = request.args.get('model', 'yolov8n.pt')
+    task = _normalize_task(request.args.get('task'))
+    if model_name not in _models_for_task(task):
+        return Response(f"Model '{model_name}' is not available for {task}.", status=400)
     cam = int(request.args.get('cam', 0)) if request.args.get('cam') is not None else 0
-    return Response(get_webcam_frame(model_name, camera_index=cam), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(get_webcam_frame(model_name, camera_index=cam, task=task),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/webcam_feed_dual')
@@ -430,7 +554,12 @@ def webcam_feed_dual():
     """
     model0 = request.args.get('model0', 'yolov8n.pt')
     model1 = request.args.get('model1', 'yolov8n.pt')
-    return Response(get_dual_webcam_frame(model0, model1), mimetype='multipart/x-mixed-replace; boundary=frame')
+    task = _normalize_task(request.args.get('task'))
+    allowed = _models_for_task(task)
+    if model0 not in allowed or model1 not in allowed:
+        return Response('Requested model not available for selected task.', status=400)
+    return Response(get_dual_webcam_frame(model0, model1, task=task),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/webcam_feed_split')
@@ -441,10 +570,15 @@ def webcam_feed_split():
     """
     model0 = request.args.get('model0', 'yolov8n.pt')
     model1 = request.args.get('model1', 'yolov8n.pt')
+    task = _normalize_task(request.args.get('task'))
+    allowed = _models_for_task(task)
+    if model0 not in allowed or model1 not in allowed:
+        return Response('Requested model not available for selected task.', status=400)
     cam = int(request.args.get('cam', 0)) if request.args.get('cam') is not None else 0
     # Lazy import of the split generator from single_camera
     from backend.single_camera import get_split_webcam_frame
-    return Response(get_split_webcam_frame(model0, model1, camera_index=cam), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(get_split_webcam_frame(model0, model1, camera_index=cam, task=task),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/list_cameras')
