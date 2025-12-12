@@ -16,12 +16,23 @@ import numpy as np
 from backend.model_manager import get_model
 
 
-def draw_neon_corner_box(frame, x1, y1, x2, y2, color=(0, 255, 255), thickness=3, corner_len=25, glow_intensity=0.1):
-    """Draw a glowing neon-style corner box around the object."""
+def draw_neon_corner_box(frame, x1, y1, x2, y2, color=(0, 255, 255), thickness=3, corner_len=25, glow_intensity=0.1, fill=True):
+    """Draw a glowing neon-style corner box around the object.
+    
+    Args:
+        frame: Image to draw on
+        x1, y1, x2, y2: Bounding box coordinates
+        color: Box color (BGR)
+        thickness: Line thickness
+        corner_len: Length of corner lines
+        glow_intensity: Intensity of glow effect (0.0-1.0)
+        fill: Whether to fill the box (True for detection, False for segmentation)
+    """
 
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
-    cv2.addWeighted(overlay, glow_intensity, frame, 1 - glow_intensity, 0, frame)
+    if fill:
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
+        cv2.addWeighted(overlay, glow_intensity, frame, 1 - glow_intensity, 0, frame)
 
     cv2.line(frame, (x1, y1), (x1 + corner_len, y1), color, thickness)
     cv2.line(frame, (x1, y1), (x1, y1 + corner_len), color, thickness)
@@ -291,10 +302,11 @@ def annotate_segmentation(image, prediction, mask_alpha: float = 0.45):
                 except Exception:
                     pass
 
-        # scale corner length and thickness so boxes look proportional
+        # For segmentation, use the same neon corner box style but without fill
+        # since the mask already provides color
         corner_len = max(6, int(round(25 * draw_scale)))
         box_thickness = max(1, int(round(3 * draw_scale)))
-        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color, thickness=box_thickness, corner_len=corner_len)
+        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color, thickness=box_thickness, corner_len=corner_len, fill=False)
 
         label_parts = []
         if class_id is not None:
