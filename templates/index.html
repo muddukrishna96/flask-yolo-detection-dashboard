@@ -422,15 +422,21 @@
 
 
 
-<!-- Result display area (images, WebRTC video, or MJPEG streams will be loaded here) -->
+<!-- Result display area (WebRTC video streams only) -->
 <div class="right-result-container" style="width:100%; display:flex; flex-direction:column; gap:12px; overflow:visible;">
   <!-- Primary WebRTC stream (single camera or first dual camera feed) -->
   <video id="webrtc-remote" playsinline autoplay muted style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px; background:transparent;"></video>
   <!-- Secondary WebRTC stream (used only for dual camera mode) -->
   <video id="webrtc-remote-secondary" playsinline autoplay muted style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px; background:transparent;"></video>
-  <!-- MJPEG / fallback elements -->
-  <img id="result-display" src="" alt="Detection result" style="max-width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd;" />
-  <img id="video-display" src="" alt="Video result" style="max-width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd;" />
+  <!-- Processed image result display -->
+  <img id="result-display" style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px;">
+  <!-- Real-time streaming video display (MJPEG stream) -->
+  <img id="result-stream-display" style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px;">
+  <!-- Processed video result display -->
+  <video id="result-video-display" controls style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px;">
+    <source id="result-video-source" src="" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
   <!-- Loading spinner shown while server is processing -->
   <div id="result-spinner" style="display:none; margin-top:16px;">
     <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;">
@@ -449,7 +455,7 @@
     'image_url': image_url | default('', true),
     'video_present': video_present | default(false, true),
     'video_folder': video_folder | default('', true),
-    'server_video_stream_url': server_video_stream_url | default('', true),
+    'video_stream_url': video_stream_url | default('', true),
     'selected_task': selected_task | default('detection', true),
     'selected_model': selected_model | default('yolov8n.pt', true)
   }|tojson }}
@@ -469,7 +475,7 @@ if (serverContextElement) {
 var server_image_url = serverContext.image_url || '';
 var server_video_present = !!serverContext.video_present;
 var server_video_folder = serverContext.video_folder || '';
-var server_video_stream_url = serverContext.server_video_stream_url || '';
+var server_video_stream_url = serverContext.video_stream_url || '';
 var currentTask = serverContext.selected_task || 'detection';
 var fallbackModels = { detection: 'yolov8n.pt', segmentation: 'yolo11n-seg.pt', pose: 'yolov8n-pose.pt' };
 var currentModel = serverContext.selected_model || fallbackModels[currentTask] || fallbackModels.detection;
@@ -600,6 +606,22 @@ function resetResultOutputs() {
   if (img) {
     try { img.src = ''; } catch (err) {}
     img.style.display = 'none';
+  }
+
+  var streamImg = document.getElementById('result-stream-display');
+  if (streamImg) {
+    try { streamImg.src = ''; } catch (err) {}
+    streamImg.style.display = 'none';
+  }
+
+  var videoDisplay = document.getElementById('result-video-display');
+  if (videoDisplay) {
+    var videoSource = document.getElementById('result-video-source');
+    if (videoSource) {
+      try { videoSource.src = ''; } catch (err) {}
+    }
+    try { videoDisplay.load(); } catch (err) {}
+    videoDisplay.style.display = 'none';
   }
 
   var vimg = document.getElementById('video-display');
@@ -903,41 +925,6 @@ async function startSplitWebRTCSession(model0, model1, camIndex) {
   }
 }
 
-function startLegacyStream(url) {
-  var vimg = document.getElementById('video-display');
-  var spinner = document.getElementById('result-spinner');
-  if (!vimg) {
-    return;
-  }
-
-  vimg.style.display = 'none';
-  vimg.onload = function() {
-    if (spinner) {
-      spinner.style.display = 'none';
-    }
-    vimg.style.display = 'block';
-    var stopBtn = document.getElementById('stop-btn');
-    if (stopBtn) {
-      stopBtn.style.display = 'inline-block';
-    }
-    updateWebrtcStatus('Streaming via server-side pipeline.', 'info');
-  };
-
-  vimg.src = url;
-
-  setTimeout(function() {
-    if (spinner && spinner.style.display !== 'none') {
-      spinner.style.display = 'none';
-      vimg.style.display = 'block';
-      var stopBtn = document.getElementById('stop-btn');
-      if (stopBtn) {
-        stopBtn.style.display = 'inline-block';
-      }
-      updateWebrtcStatus('Streaming via server-side pipeline.', 'info');
-    }
-  }, 5000);
-}
-
 function showUploadedResult() {
   stopWebRTCSession(true);
   hideRemoteVideos();
@@ -959,26 +946,33 @@ function showUploadedResult() {
       stopBtn.style.display = 'inline-block';
     }
   }
-  else if (server_video_present) {
-    try {
-      var feedUrlObj = new URL("{{ url_for('video_feed') }}", window.location.origin);
-      if (server_video_folder) {
-        feedUrlObj.searchParams.set('folder', server_video_folder);
-      }
-      feedUrlObj.searchParams.set('task', getCurrentTask());
-      startLegacyStream(feedUrlObj.toString());
-    } catch (err) {
-      var fallbackUrl = "{{ url_for('video_feed') }}";
-      if (server_video_folder) {
-        fallbackUrl += "?folder=" + encodeURIComponent(server_video_folder) + "&task=" + encodeURIComponent(getCurrentTask());
-      } else {
-        fallbackUrl += "?task=" + encodeURIComponent(getCurrentTask());
-      }
-      startLegacyStream(fallbackUrl);
+  else if (server_video_stream_url) {
+    // Display real-time streaming video from server
+    var streamImg = document.getElementById('result-stream-display');
+    if (streamImg) {
+      streamImg.src = server_video_stream_url;
+      streamImg.style.display = 'block';
+    }
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'inline-block';
     }
   }
-  else if (server_video_stream_url) {
-    startLegacyStream(server_video_stream_url);
+  else if (server_video_present && server_video_folder) {
+    // Display processed video (fallback if no stream URL)
+    var task = getCurrentTask();
+    var baseUrl = '/display/' + server_video_folder + '/output.mp4?task=' + encodeURIComponent(task);
+    var videoDisplay = document.getElementById('result-video-display');
+    var videoSource = document.getElementById('result-video-source');
+    if (videoDisplay && videoSource) {
+      videoSource.src = baseUrl;
+      videoDisplay.load();
+      videoDisplay.style.display = 'block';
+    }
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'inline-block';
+    }
   }
 }
 
@@ -1351,12 +1345,12 @@ document.getElementById('stop-btn').addEventListener('click', function(e){
 // If the server provided a processed image path, show it on load
 window.addEventListener('load', function(){
   showUploadedResult();
-  // If server returned a processed result, show the Detection dashboard so the user sees results immediately.
+  // If server returned a processed image, video stream, or video file, show the Detection dashboard so the user sees results immediately.
   try {
     var hasImage = (typeof server_image_url !== 'undefined' && server_image_url);
+    var hasVideoStream = (typeof server_video_stream_url !== 'undefined' && server_video_stream_url);
     var hasVideo = (typeof server_video_present !== 'undefined' && server_video_present === true);
-    var hasStream = (typeof server_video_stream_url !== 'undefined' && server_video_stream_url);
-    if (hasImage || hasVideo || hasStream) {
+    if (hasImage || hasVideoStream || hasVideo) {
       showDetectionView();
     } else {
       var taskNow = getCurrentTask();
