@@ -34,6 +34,22 @@ def draw_neon_corner_box(frame, x1, y1, x2, y2, color=(0, 255, 255), thickness=3
     return frame
 
 
+def _compute_draw_scale(width: int, height: int, ref_width: int = 1280, ref_height: int = 720) -> float:
+    """Compute a linear scale factor for drawing elements based on image size.
+
+    Uses the minimum axis ratio so that overlays scale proportionally and
+    remain legible. Clamps to a reasonable lower bound to keep text/boxes visible.
+    """
+    if ref_width <= 0 or ref_height <= 0:
+        return 1.0
+    sx = width / ref_width
+    sy = height / ref_height
+    scale = min(sx, sy)
+    # Enforce a minimum scale so text and boxes remain legible at very small resolutions
+    # This prevents unreadable tiny fonts when processing at 25% or lower capture scales
+    return max(0.6, float(scale))
+
+
 _CLASS_COLOR_HEX = (
     0xFF6B6B,
     0xFFD166,
@@ -121,9 +137,10 @@ def annotate_detections(image, prediction, color=(0, 255, 255)):
         names = getattr(model_ref, 'names', None)
 
     height, width = annotated.shape[:2]
+    draw_scale = _compute_draw_scale(width, height)
     font = cv2.FONT_HERSHEY_DUPLEX
-    base_scale = 0.6
-    base_thickness = 2
+    base_scale = 0.6 * draw_scale
+    base_thickness = max(1, int(round(2 * draw_scale)))
 
     for idx, coords in enumerate(xyxy):
         x1, y1, x2, y2 = coords
@@ -141,7 +158,10 @@ def annotate_detections(image, prediction, color=(0, 255, 255)):
 
         box_color = _get_color_for_class(class_id, default_color=color)
 
-        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color)
+        # scale corner length and thickness so boxes look proportional
+        corner_len = max(6, int(round(25 * draw_scale)))
+        box_thickness = max(1, int(round(3 * draw_scale)))
+        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color, thickness=box_thickness, corner_len=corner_len)
 
         label_parts = []
         if class_id is not None:
@@ -159,13 +179,16 @@ def annotate_detections(image, prediction, color=(0, 255, 255)):
             label_text = " ".join(label_parts)
             (text_w, text_h), baseline = cv2.getTextSize(label_text, font, base_scale, base_thickness)
 
-            text_x = x1 + 8
-            text_y = y1 - 12
+            pad_x = max(4, int(round(8 * draw_scale)))
+            pad_y = max(6, int(round(12 * draw_scale)))
+            text_x = x1 + pad_x
+            text_y = y1 - pad_y
             if text_y - text_h - baseline < 0:
-                text_y = y1 + text_h + 12
+                text_y = y1 + text_h + pad_y
 
-            rect_start = (max(text_x - 6, 0), max(text_y - text_h - 6, 0))
-            rect_end = (min(text_x + text_w + 6, width - 1), min(text_y + 6, height - 1))
+            rect_pad = max(4, int(round(6 * draw_scale)))
+            rect_start = (max(text_x - rect_pad, 0), max(text_y - text_h - rect_pad, 0))
+            rect_end = (min(text_x + text_w + rect_pad, width - 1), min(text_y + rect_pad, height - 1))
 
             accent_color = box_color if sum(box_color) > 255 else (255, 255, 255)
             cv2.rectangle(annotated, rect_start, rect_end, (0, 0, 0), -1)
@@ -221,9 +244,10 @@ def annotate_segmentation(image, prediction, mask_alpha: float = 0.45):
         mask_data = np.zeros((0, image.shape[0], image.shape[1]), dtype=np.uint8)
 
     height, width = annotated.shape[:2]
+    draw_scale = _compute_draw_scale(width, height)
     font = cv2.FONT_HERSHEY_DUPLEX
-    base_scale = 0.6
-    base_thickness = 2
+    base_scale = 0.6 * draw_scale
+    base_thickness = max(1, int(round(2 * draw_scale)))
 
     prepared_masks = []
     if mask_data is not None and len(mask_data):
@@ -262,11 +286,14 @@ def annotate_segmentation(image, prediction, mask_alpha: float = 0.45):
 
                 try:
                     contours, _ = cv2.findContours((mask * 255).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    cv2.drawContours(annotated, contours, -1, box_color, 2)
+                    cv2.drawContours(annotated, contours, -1, box_color, max(1, int(round(2 * draw_scale))))
                 except Exception:
                     pass
 
-        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color)
+        # scale corner length and thickness so boxes look proportional
+        corner_len = max(6, int(round(25 * draw_scale)))
+        box_thickness = max(1, int(round(3 * draw_scale)))
+        draw_neon_corner_box(annotated, x1, y1, x2, y2, color=box_color, thickness=box_thickness, corner_len=corner_len)
 
         label_parts = []
         if class_id is not None:
@@ -284,13 +311,16 @@ def annotate_segmentation(image, prediction, mask_alpha: float = 0.45):
             label_text = " ".join(label_parts)
             (text_w, text_h), baseline = cv2.getTextSize(label_text, font, base_scale, base_thickness)
 
-            text_x = x1 + 8
-            text_y = y1 - 12
+            pad_x = max(4, int(round(8 * draw_scale)))
+            pad_y = max(6, int(round(12 * draw_scale)))
+            text_x = x1 + pad_x
+            text_y = y1 - pad_y
             if text_y - text_h - baseline < 0:
-                text_y = y1 + text_h + 12
+                text_y = y1 + text_h + pad_y
 
-            rect_start = (max(text_x - 6, 0), max(text_y - text_h - 6, 0))
-            rect_end = (min(text_x + text_w + 6, width - 1), min(text_y + 6, height - 1))
+            rect_pad = max(4, int(round(6 * draw_scale)))
+            rect_start = (max(text_x - rect_pad, 0), max(text_y - text_h - rect_pad, 0))
+            rect_end = (min(text_x + text_w + rect_pad, width - 1), min(text_y + rect_pad, height - 1))
 
             accent_color = box_color if sum(box_color) > 255 else (255, 255, 255)
             cv2.rectangle(annotated, rect_start, rect_end, (0, 0, 0), -1)
@@ -344,6 +374,10 @@ def annotate_pose(image, prediction):
     num_instances = xy_data.shape[0]
     num_keypoints = xy_data.shape[1] if xy_data.ndim >= 2 else 0
 
+    # derive draw scale from annotated image so pose markers scale with resolution
+    height, width = annotated.shape[:2]
+    draw_scale = _compute_draw_scale(width, height)
+
     for det_idx in range(num_instances):
         points = xy_data[det_idx]
         if points is None or len(points) == 0:
@@ -371,8 +405,11 @@ def annotate_pose(image, prediction):
                 continue
 
             center = (int(round(kp[0])), int(round(kp[1])))
-            cv2.circle(annotated, center, 6, ring_color, 2, cv2.LINE_AA)
-            cv2.circle(annotated, center, 3, core_color, -1, cv2.LINE_AA)
+            outer_r = max(1, int(round(6 * draw_scale)))
+            outer_th = max(1, int(round(2 * draw_scale)))
+            inner_r = max(1, int(round(3 * draw_scale)))
+            cv2.circle(annotated, center, outer_r, ring_color, outer_th, cv2.LINE_AA)
+            cv2.circle(annotated, center, inner_r, core_color, -1, cv2.LINE_AA)
 
     return annotated
 
@@ -407,38 +444,41 @@ def add_model_overlay(image, model_name):
         Image with overlay added
     """
     height, width = image.shape[:2]
-    
+
     # Clean model name (remove .pt extension)
     display_name = model_name.replace('.pt', '').upper()
-    
-    # Text properties - increased by 40% for better visibility
+
+    # Compute draw scale so overlay scales with resolution
+    draw_scale = _compute_draw_scale(width, height)
+
+    # Text properties scaled with resolution
     font = cv2.FONT_HERSHEY_DUPLEX
-    font_scale = 1.0  # Increased from 0.7
-    font_thickness = 3  # Increased from 2
+    font_scale = max(0.6, 1.0 * draw_scale)
+    font_thickness = max(1, int(round(3 * draw_scale)))
     text = f"Model: {display_name}"
     
     # Get text size for background rectangle
     (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, font_thickness)
     
-    # Position at bottom right with padding
-    padding = 20  # Increased from 15
-    x = width - text_width - padding - 14  # Increased margin
+    # Position at bottom right with padding scaled
+    padding = max(8, int(round(20 * draw_scale)))
+    x = width - text_width - padding - int(round(14 * draw_scale))
     y = height - padding
     
     # Create semi-transparent overlay
     overlay = image.copy()
     
     # Draw rounded rectangle background (stylish dark background)
-    rect_x1 = x - 14  # Increased padding
-    rect_y1 = y - text_height - 14
-    rect_x2 = x + text_width + 14
-    rect_y2 = y + baseline + 7
+    rect_x1 = x - int(round(14 * draw_scale))
+    rect_y1 = y - text_height - int(round(14 * draw_scale))
+    rect_x2 = x + text_width + int(round(14 * draw_scale))
+    rect_y2 = y + baseline + int(round(7 * draw_scale))
     
     # Draw background with slight transparency
     cv2.rectangle(overlay, (rect_x1, rect_y1), (rect_x2, rect_y2), (0, 0, 0), -1)
     
     # Add colored accent border (gradient-like effect with cyan/blue) - thicker border
-    cv2.rectangle(overlay, (rect_x1, rect_y1), (rect_x2, rect_y2), (255, 200, 0), 4)  # Increased from 3
+    cv2.rectangle(overlay, (rect_x1, rect_y1), (rect_x2, rect_y2), (255, 200, 0), max(1, int(round(4 * draw_scale))))
     
     # Blend overlay with original image for transparency
     alpha = 0.75
@@ -558,9 +598,25 @@ def process_video(filepath, model_name='yolov8n.pt', task: str = 'detection'):
             if not ret:
                 break
 
-            results = model(frame, verbose=False)
-            annotated = annotate_frame(frame, results[0], task=task)
-            annotated = add_model_overlay(annotated, model_name)
+            # Log frame resolution for diagnostic tracing
+            try:
+                fh, fw = frame.shape[:2]
+                print(f"[VIDEO][FRAME] model={model_name} task={task} width={fw} height={fh}")
+            except Exception:
+                pass
+
+            t_frame = time.perf_counter()
+            try:
+                t_inf0 = time.perf_counter()
+                results = model(frame, verbose=False)
+                t_inf1 = time.perf_counter()
+                annotated = annotate_frame(frame, results[0], task=task)
+                t_ann = time.perf_counter()
+                annotated = add_model_overlay(annotated, model_name)
+                t_overlay = time.perf_counter()
+            except Exception as e:
+                print(f"[VIDEO] frame processing error: {e}")
+                annotated = frame
 
             writer.write(annotated)
     finally:

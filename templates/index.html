@@ -288,6 +288,22 @@
         </div>
       </div>
 
+      <div class="form-group">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <label class="small" style="margin:0;">Capture scale</label>
+          <button type="button" class="btn btn-sm btn-link p-0" style="font-size:16px;" data-toggle="tooltip" title="Reduces camera resolution for faster inference. Lower scale = faster processing but smaller image. Server upscales output for display.">
+            <i class="fa fa-info-circle text-muted"></i>
+          </button>
+        </div>
+        <div>
+          <select id="webrtc-capture-scale" class="form-control form-control-sm" style="max-width:180px;">
+            <option value="1.0">100%</option>
+            <option value="0.75">75%</option>
+            <option value="0.5">50%</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Camera index selection modal (used when multiple cameras detected) -->
       <div id="camera-index-modal" class="modal" tabindex="-1" role="dialog" style="display:none;">
         <div class="modal-dialog" role="document">
@@ -677,9 +693,27 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
   var manageTracks = options.manageTracks !== false;
 
   if (!localStream) {
+    // Allow the user to choose a capture scale to request lower resolutions
+    var scale = 1.0;
+    try {
+      var el = document.getElementById('webrtc-capture-scale');
+      if (el && el.value) {
+        scale = parseFloat(el.value) || 1.0;
+      }
+    } catch (e) { /* ignore */ }
+
+    // Map scale to a reasonable target resolution (width x height)
+    var target = { width: 1280, height: 720 };
+    if (scale >= 0.99) { target = { width: 1280, height: 720 }; }
+    else if (scale >= 0.74) { target = { width: 960, height: 540 }; }
+    else if (scale >= 0.49) { target = { width: 640, height: 360 }; }
+    else { target = { width: 320, height: 180 }; }
+
     var constraints = { video: true, audio: false };
     if (deviceId) {
-      constraints.video = { deviceId: { exact: deviceId } };
+      constraints.video = { deviceId: { exact: deviceId }, width: { ideal: target.width }, height: { ideal: target.height } };
+    } else {
+      constraints.video = { width: { ideal: target.width }, height: { ideal: target.height } };
     }
 
     try {
@@ -720,10 +754,39 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
     var offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
+    // include selected capture scale in the offer so server can adapt processing
+    var scaleVal = 1.0;
+    try {
+      var scaleEl = document.getElementById('webrtc-capture-scale');
+      if (scaleEl && scaleEl.value) scaleVal = parseFloat(scaleEl.value) || 1.0;
+    } catch (e) {}
+
+    // attempt to apply constraints to the outgoing local track to request lower resolution
+    try {
+      if (localStream && localStream.getVideoTracks && localStream.getVideoTracks().length) {
+        var vtrack = localStream.getVideoTracks()[0];
+        if (vtrack && vtrack.applyConstraints) {
+          var target = { width: 1280, height: 720 };
+          if (scaleVal >= 0.99) { target = { width: 1280, height: 720 }; }
+          else if (scaleVal >= 0.74) { target = { width: 960, height: 540 }; }
+          else if (scaleVal >= 0.49) { target = { width: 640, height: 360 }; }
+          else { target = { width: 320, height: 180 }; }
+          try {
+            await vtrack.applyConstraints({ width: { exact: target.width }, height: { exact: target.height } });
+          } catch (err) {
+            // exact may fail on some devices; try ideal
+            try { await vtrack.applyConstraints({ width: { ideal: target.width }, height: { ideal: target.height } }); } catch (e) { }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('applyConstraints failed', e);
+    }
+
     var response = await fetch("{{ url_for('webrtc_offer') }}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName })
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName, scale: scaleVal })
     });
 
     var payload = await response.json();

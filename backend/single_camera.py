@@ -38,14 +38,25 @@ def get_webcam_frame(model_name='yolov8n.pt', camera_index=0, task: str = 'detec
             ret, frame = cap.read()
             if not ret:
                 break
-
+            # Log frame resolution
+            try:
+                fh, fw = frame.shape[:2]
+                print(f"[CAM][FRAME] model={model_name} task={task} width={fw} height={fh}")
+            except Exception:
+                pass
             # Run inference if model is loaded
+            t_frame = time.perf_counter()
             if model:
                 try:
+                    t_inf0 = time.perf_counter()
                     results = model(frame)
+                    t_inf1 = time.perf_counter()
                     res_plotted = annotate_frame(frame, results[0], task=task)
+                    t_ann = time.perf_counter()
                     res_plotted = add_model_overlay(res_plotted, model_name)
-                except Exception:
+                    t_overlay = time.perf_counter()
+                except Exception as e:
+                    print(f"[CAM] inference error: {e}")
                     res_plotted = frame
             else:
                 res_plotted = frame
@@ -95,6 +106,13 @@ def get_split_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', camera_inde
             ret, frame = cap.read()
             if not ret:
                 break
+
+            # Log frame resolution (single split pipeline)
+            try:
+                fh, fw = frame.shape[:2]
+                print(f"[CAM][FRAME] split model0={model0} model1={model1} task={task} width={fw} height={fh}")
+            except Exception:
+                pass
 
             # Process with model0
             if m0:

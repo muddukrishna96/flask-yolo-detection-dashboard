@@ -13,6 +13,7 @@ from typing import Optional
 from flask import Flask, render_template, request, url_for, Response, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 import cv2
+import time
 
 # Import backend processing modules
 from backend.model_manager import (
@@ -446,20 +447,28 @@ def process_video_stream():
                 if not ret:
                     break
 
+                t_frame = time.perf_counter()
+
                 # Run inference on the frame using the resolved model
                 try:
+                    t_inf0 = time.perf_counter()
                     results = resolved_model(frame)
+                    t_inf1 = time.perf_counter()
                     res_plotted = annotate_frame(frame, results[0], task=task)
+                    t_ann = time.perf_counter()
                 except Exception as e:
                     print('inference error:', e)
                     res_plotted = frame
+                    t_inf1 = time.perf_counter()
+                    t_ann = t_inf1
 
                 # Optionally add model overlay using image_video_processor.add_model_overlay if available
                 try:
                     from backend.image_video_processor import add_model_overlay
                     res_plotted = add_model_overlay(res_plotted, model_name)
+                    t_overlay = time.perf_counter()
                 except Exception:
-                    pass
+                    t_overlay = time.perf_counter()
 
                 # Add a small debug label showing which model was actually used
                 try:
@@ -469,10 +478,23 @@ def process_video_stream():
                     pass
 
                 # Encode as JPEG and yield as MJPEG frame
+                t_enc0 = time.perf_counter()
                 ret2, jpeg = cv2.imencode('.jpg', res_plotted, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                t_enc1 = time.perf_counter()
                 if not ret2:
                     continue
                 frame_bytes = jpeg.tobytes()
+
+                try:
+                    inf_ms = (t_inf1 - t_inf0) * 1000.0
+                    ann_ms = (t_ann - t_inf1) * 1000.0
+                    overlay_ms = (t_overlay - t_ann) * 1000.0
+                    enc_ms = (t_enc1 - t_enc0) * 1000.0
+                    total_ms = (t_enc1 - t_frame) * 1000.0
+                    print(f"[STREAM][TIMING] model={model_name} task={task} inf_ms={inf_ms:.1f} ann_ms={ann_ms:.1f} overlay_ms={overlay_ms:.1f} enc_ms={enc_ms:.1f} total_ms={total_ms:.1f}")
+                except Exception:
+                    pass
+
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         except GeneratorExit:
@@ -546,9 +568,15 @@ def webrtc_offer() -> Response:
     if model_name not in models_for_task:
         return jsonify({'error': f"Model '{model_name}' is not available for {task}."}), 400
 
+    # optional scale parameter from client (1.0 == native)
     try:
-        app.logger.info('Received WebRTC offer for model %s (%s) from %s', model_name, task, request.remote_addr)
-        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task))
+        scale = float(payload.get('scale', 1.0) or 1.0)
+    except Exception:
+        scale = 1.0
+
+    try:
+        app.logger.info('Received WebRTC offer for model %s (%s) scale=%s from %s', model_name, task, scale, request.remote_addr)
+        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task, scale))
     except ValueError as err:
         return jsonify({'error': str(err)}), 400
     except Exception as err:  # pragma: no cover - defensive logging path

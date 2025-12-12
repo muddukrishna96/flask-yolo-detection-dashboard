@@ -52,12 +52,25 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', task: str = 
             if not ret0 or not ret1:
                 break
 
+            # Log resolutions for both camera frames
+            try:
+                h0, w0 = frame0.shape[:2]
+                h1, w1 = frame1.shape[:2]
+                print(f"[DUAL][FRAME] cam0_width={w0} cam0_height={h0} cam1_width={w1} cam1_height={h1} task={task}")
+            except Exception:
+                pass
+
             # Process camera 0
             if m0:
                 try:
+                    t0_frame = time.perf_counter()
+                    t0_inf0 = time.perf_counter()
                     results0 = m0(frame0)
+                    t0_inf1 = time.perf_counter()
                     res_plotted0 = annotate_frame(frame0, results0[0], task=task)
+                    t0_ann = time.perf_counter()
                     res_plotted0 = add_model_overlay(res_plotted0, model0)
+                    t0_overlay = time.perf_counter()
                 except Exception:
                     res_plotted0 = frame0
             else:
@@ -66,9 +79,14 @@ def get_dual_webcam_frame(model0='yolov8n.pt', model1='yolov8n.pt', task: str = 
             # Process camera 1
             if m1:
                 try:
+                    t1_frame = time.perf_counter()
+                    t1_inf0 = time.perf_counter()
                     results1 = m1(frame1)
+                    t1_inf1 = time.perf_counter()
                     res_plotted1 = annotate_frame(frame1, results1[0], task=task)
+                    t1_ann = time.perf_counter()
                     res_plotted1 = add_model_overlay(res_plotted1, model1)
+                    t1_overlay = time.perf_counter()
                 except Exception:
                     res_plotted1 = frame1
             else:
