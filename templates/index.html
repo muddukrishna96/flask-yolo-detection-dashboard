@@ -732,10 +732,12 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
     else { target = { width: 320, height: 180 }; }
 
     var constraints = { video: true, audio: false };
+    // Request a lower capture FPS to reduce producer speed and avoid queue buildup
+    var fpsConstraints = { frameRate: { ideal: 12, max: 15 } };
     if (deviceId) {
-      constraints.video = { deviceId: { exact: deviceId }, width: { ideal: target.width }, height: { ideal: target.height } };
+      constraints.video = Object.assign({ deviceId: { exact: deviceId }, width: { ideal: target.width }, height: { ideal: target.height } }, fpsConstraints);
     } else {
-      constraints.video = { width: { ideal: target.width }, height: { ideal: target.height } };
+      constraints.video = Object.assign({ width: { ideal: target.width }, height: { ideal: target.height } }, fpsConstraints);
     }
 
     try {
@@ -794,10 +796,10 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
           else if (scaleVal >= 0.49) { target = { width: 640, height: 360 }; }
           else { target = { width: 320, height: 180 }; }
           try {
-            await vtrack.applyConstraints({ width: { exact: target.width }, height: { exact: target.height } });
+            await vtrack.applyConstraints({ width: { exact: target.width }, height: { exact: target.height }, frameRate: { exact: 12 } });
           } catch (err) {
             // exact may fail on some devices; try ideal
-            try { await vtrack.applyConstraints({ width: { ideal: target.width }, height: { ideal: target.height } }); } catch (e) { }
+            try { await vtrack.applyConstraints({ width: { ideal: target.width }, height: { ideal: target.height }, frameRate: { ideal: 12, max: 15 } }); } catch (e) { }
           }
         }
       }
@@ -805,10 +807,12 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
       console.warn('applyConstraints failed', e);
     }
 
+    // Include camera_id so server can bind the worker/track to the correct camera
+    var cameraIdVal = options && options.camera_id ? options.camera_id : (deviceId || '0');
     var response = await fetch("{{ url_for('webrtc_offer') }}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName, scale: scaleVal })
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName, scale: scaleVal, camera_id: cameraIdVal })
     });
 
     var payload = await response.json();
@@ -859,8 +863,8 @@ async function startDualWebRTCSession(model0, deviceId0, model1, deviceId1) {
   }
 
   await Promise.all([
-    startSingleWebRTCSession(model0, deviceId0, remoteA, handleFrame),
-    startSingleWebRTCSession(model1, deviceId1, remoteB, handleFrame)
+    startSingleWebRTCSession(model0, deviceId0, remoteA, handleFrame, { camera_id: '0' }),
+    startSingleWebRTCSession(model1, deviceId1, remoteB, handleFrame, { camera_id: '1' })
   ]);
 }
 
@@ -886,7 +890,7 @@ async function startSplitWebRTCSession(model0, model1, camIndex) {
 
   var baseStream;
   try {
-    var constraints = { video: { deviceId: { exact: deviceId } }, audio: false };
+    var constraints = { video: { deviceId: { exact: deviceId }, frameRate: { ideal: 12, max: 15 } }, audio: false };
     baseStream = await navigator.mediaDevices.getUserMedia(constraints);
   } catch (err) {
     throw new Error('Camera access denied for split view: ' + err.message);
@@ -915,8 +919,8 @@ async function startSplitWebRTCSession(model0, model1, camIndex) {
 
   try {
     await Promise.all([
-      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA, task: taskName }),
-      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB, task: taskName })
+      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA, task: taskName, camera_id: '0' }),
+      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB, task: taskName, camera_id: '1' })
     ]);
   } catch (err) {
     streamA.getTracks().forEach(function(track){ try { track.stop(); } catch (stopErr) { console.warn('stop streamA track failed', stopErr); } });

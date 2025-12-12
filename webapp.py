@@ -457,7 +457,9 @@ def webrtc_offer() -> Response:
 
     try:
         app.logger.info('Received WebRTC offer for model %s (%s) scale=%s from %s', model_name, task, scale, request.remote_addr)
-        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task, scale))
+        # optional camera_id to select which camera stream this offer corresponds to
+        camera_id = payload.get('camera_id', '0')
+        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task, scale, camera_id))
     except ValueError as err:
         return jsonify({'error': str(err)}), 400
     except Exception as err:  # pragma: no cover - defensive logging path
