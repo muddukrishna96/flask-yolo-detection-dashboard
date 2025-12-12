@@ -58,12 +58,7 @@
                   <label class="form-check-label" for="task-pose">Pose detection</label>
                 </div>
               </li>
-              <li class="nav-item px-3 pb-3">
-                <div class="form-check">
-                  <input class="form-check-input" type="radio" name="taskOption" id="task-classification" value="classification" {% if current_task == 'classification' %}checked{% endif %}>
-                  <label class="form-check-label" for="task-classification">Classification</label>
-                </div>
-              </li>
+              <!-- Classification option removed: application uses detection/segmentation/pose only -->
             </ul>
           </li>
       </nav>
