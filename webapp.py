@@ -13,6 +13,7 @@ from typing import Optional
 from flask import Flask, render_template, request, url_for, Response, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 import cv2
+import time
 
 # Import backend processing modules
 from backend.model_manager import (
@@ -26,13 +27,12 @@ from backend.model_manager import (
 )
 from backend.image_video_processor import (
     process_image,
+    process_video,
     is_image_file,
     is_video_file,
     annotate_frame,
 )
-from backend.single_camera import get_webcam_frame
-from backend.dual_camera import get_dual_webcam_frame
-from backend.video_stream import get_frame, get_video_from_folder, stream_file_mp4_as_mjpeg
+
 from backend.webrtc_session import create_answer_for_offer, close_all_peers
 
 
@@ -207,12 +207,13 @@ def predict_img():
                 )
 
             if is_video_file(uploaded.filename):
-                stream_url = url_for('process_video_stream', filename=safe_name, model=model_name, task=task)
+                # Return a streaming URL for real-time video processing
+                stream_url = url_for('stream_video_file', filename=safe_name, model=model_name, task=task)
                 return render_template(
                     'index.html',
                     image_url='',
                     video_present=False,
-                    server_video_stream_url=stream_url,
+                    video_stream_url=stream_url,
                     selected_model=model_name,
                     models=models_for_task,
                     selected_task=task,
@@ -334,195 +335,97 @@ def display(folder, filename):
     return send_from_directory(directory, filename)
 
 
-@app.route('/process_video_stream')
-def process_video_stream():
+@app.route('/stream_video_file')
+def stream_video_file():
     """
-    Process an uploaded video file frame-by-frame and stream processed frames as MJPEG.
-    Query params:
-      - filename: name of file inside uploads/ (secure_filename recommended)
-      - model: model name to use
+    Stream an uploaded video file with real-time YOLO processing.
+    Processes frames on-the-fly and streams them back as MP4.
+    
+    Query parameters:
+      - filename: name of uploaded video file
+      - model: model name to use for inference
+      - task: detection/segmentation/pose task
     """
     filename = request.args.get('filename')
+    model_name = request.args.get('model', 'yolov8n.pt').strip()
     task = _normalize_task(request.args.get('task'))
-    models_for_task = _models_for_task(task)
-    model_name = request.args.get('model', _default_model_for_task(task, models_for_task))
-    if model_name:
-        model_name = model_name.strip()
+    
     if not filename:
         return "Missing filename", 400
-
-    allowed_models = models_for_task
-    if model_name not in allowed_models:
-        choices = ', '.join(allowed_models) if allowed_models else 'None'
-        msg = (f"Model '{model_name}' is not available for {task}. "
-               f"Choose from: {choices}")
-        return (msg, 400)
-
+    
+    # Get the uploaded file path
     uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
-    filepath = os.path.join(uploads_dir, filename)
-    if not os.path.exists(filepath):
+    filepath = os.path.join(uploads_dir, secure_filename(filename))
+    
+    if not os.path.isfile(filepath):
         return "File not found", 404
-
-    # Extra debug output to trace incoming request parameters
-    try:
-        print('\n--- process_video_stream START ---')
-        print('Request URL:', request.url)
-        print('Query string raw:', request.query_string)
-        print('request.args:', dict(request.args))
-        try:
-            from backend import model_manager
-            print('model_manager.model_cache keys:', list(model_manager.model_cache.keys()))
-        except Exception:
-            pass
-        print('Available models (list_models):', list_models())
-        print('-------------------------------\n')
-    except Exception:
-        pass
-
-    # Resolve the requested model BEFORE starting the stream. If the requested model is not available,
-    # return a clear error so the user can pick a different model.
-    resolved_model = None
-    resolved_model_name = None
-    try:
-        # Try to resolve via get_model (handles built-ins and registered custom models)
-        try:
-            resolved_model = get_model(model_name)
-            resolved_model_name = model_name
-            print(f'Using model (get_model): {model_name}')
-        except Exception as e:
-            print(f'get_model failed for "{model_name}": {e}')
-            try:
-                from backend import model_manager
-                if model_name in model_manager.model_cache:
-                    resolved_model = model_manager.model_cache[model_name]
-                    resolved_model_name = model_name
-                    print(f'Using model from model_cache: {model_name}')
-            except Exception:
-                pass
-
-        # Try loading a local model file from models/
-        if resolved_model is None:
-            models_dir = os.path.join(os.path.dirname(__file__), 'models')
-            candidate = os.path.join(models_dir, model_name)
-            if os.path.isfile(candidate):
-                try:
-                    from ultralytics import YOLO as _YOLO
-                    resolved_model = _YOLO(candidate)
-                    resolved_model_name = os.path.basename(candidate)
-                    print(f'Loaded local model file: {candidate}')
-                except Exception as e:
-                    print('local model load failed:', e)
-
-        if resolved_model is None:
-            available = []
-            try:
-                from backend import model_manager
-                available = list(model_manager.model_cache.keys())
-            except Exception:
-                pass
-            msg = f"Requested model '{model_name}' not available on server. Available: {available}"
-            print(msg)
-            return (msg, 400)
-    except Exception as e:
-        print('model resolution unexpected error:', e)
-        return (f"Model resolution error: {e}", 500)
-
-    def generate():
+    
+    def generate_video_stream():
+        """Generator that yields MP4 frames with YOLO processing."""
         try:
             cap = cv2.VideoCapture(filepath)
-            # Debug info: log incoming model and available cached models
+            if not cap.isOpened():
+                return
+            
+            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
+            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            
+            # Get model
             try:
-                from backend import model_manager
-                print('process_video_stream request -> filename:', filename, 'model:', model_name)
-                print('model_cache keys:', list(model_manager.model_cache.keys()))
-                models_dir = os.path.join(os.path.dirname(__file__), 'models')
-                if os.path.isdir(models_dir):
-                    print('models/ dir contents:', os.listdir(models_dir))
-            except Exception:
-                pass
-
+                model = get_model(model_name)
+            except Exception as e:
+                print(f"Failed to load model {model_name}: {e}")
+                return
+            
+            frame_count = 0
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-
-                # Run inference on the frame using the resolved model
+                
+                frame_count += 1
                 try:
-                    results = resolved_model(frame)
-                    res_plotted = annotate_frame(frame, results[0], task=task)
+                    # Run inference
+                    results = model(frame, verbose=False)
+                    annotated = annotate_frame(frame, results[0], task=task)
+                    
+                    # Add model overlay
+                    try:
+                        from backend.image_video_processor import add_model_overlay
+                        annotated = add_model_overlay(annotated, model_name)
+                    except Exception:
+                        pass
+                    
+                    # Encode frame as JPEG
+                    ret2, jpeg = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                    if not ret2:
+                        continue
+                    
+                    frame_bytes = jpeg.tobytes()
+                    
+                    # Yield MJPEG frame boundary
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n'
+                           b'Content-length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + frame_bytes + b'\r\n')
+                    
+                    # Log progress
+                    if frame_count % 30 == 0:
+                        print(f"[STREAM] Processing frame {frame_count} with {model_name}")
+                    
                 except Exception as e:
-                    print('inference error:', e)
-                    res_plotted = frame
-
-                # Optionally add model overlay using image_video_processor.add_model_overlay if available
-                try:
-                    from backend.image_video_processor import add_model_overlay
-                    res_plotted = add_model_overlay(res_plotted, model_name)
-                except Exception:
-                    pass
-
-                # Add a small debug label showing which model was actually used
-                try:
-                    label = resolved_model_name if resolved_model_name else ('unknown')
-                    cv2.putText(res_plotted, f'Model used: {label}', (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-                except Exception:
-                    pass
-
-                # Encode as JPEG and yield as MJPEG frame
-                ret2, jpeg = cv2.imencode('.jpg', res_plotted, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                if not ret2:
+                    print(f"Frame processing error: {e}")
                     continue
-                frame_bytes = jpeg.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        except GeneratorExit:
-            # client disconnected
-            pass
+        
         except Exception as e:
-            try:
-                print('process_video_stream error:', e)
-            except Exception:
-                pass
+            print(f"stream_video_file error: {e}")
         finally:
             try:
                 cap.release()
             except Exception:
                 pass
-
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-
-@app.route("/video_feed")
-def video_feed():
-    """
-    Stream processed video as MJPEG.
-    Accepts ?folder=<name> parameter to stream from specific runs/detect subfolder.
-    """
-    folder = request.args.get('folder', None)
-    task = _normalize_task(request.args.get('task'))
-    task_dir = _task_run_dir(task)
-    if folder:
-        mp4_path = get_video_from_folder(folder, task_dir=task_dir)
-        if mp4_path:
-            return Response(stream_file_mp4_as_mjpeg(mp4_path), 
-                          mimetype='multipart/x-mixed-replace; boundary=frame')
     
-    # Fallback to default output.mp4
-    return Response(get_frame(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-
-@app.route('/webcam')
-def webcam_page():
-    """Render webcam page with live inference and stop button."""
-    task = _normalize_task(request.args.get('task'))
-    models_for_task = _models_for_task(task)
-    default_model = _default_model_for_task(task, models_for_task)
-    return render_template(
-        'webcam.html',
-        models=models_for_task,
-        default_model=default_model,
-        selected_task=task,
-    )
+    return Response(generate_video_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/webrtc/offer', methods=['POST'])
@@ -546,9 +449,17 @@ def webrtc_offer() -> Response:
     if model_name not in models_for_task:
         return jsonify({'error': f"Model '{model_name}' is not available for {task}."}), 400
 
+    # optional scale parameter from client (1.0 == native)
     try:
-        app.logger.info('Received WebRTC offer for model %s (%s) from %s', model_name, task, request.remote_addr)
-        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task))
+        scale = float(payload.get('scale', 1.0) or 1.0)
+    except Exception:
+        scale = 1.0
+
+    try:
+        app.logger.info('Received WebRTC offer for model %s (%s) scale=%s from %s', model_name, task, scale, request.remote_addr)
+        # optional camera_id to select which camera stream this offer corresponds to
+        camera_id = payload.get('camera_id', '0')
+        answer = _run_async(create_answer_for_offer(sdp, offer_type, model_name, task, scale, camera_id))
     except ValueError as err:
         return jsonify({'error': str(err)}), 400
     except Exception as err:  # pragma: no cover - defensive logging path
@@ -556,59 +467,6 @@ def webrtc_offer() -> Response:
         return jsonify({'error': 'Failed to negotiate WebRTC session'}), 500
 
     return jsonify({'sdp': answer.sdp, 'type': answer.type})
-
-
-@app.route('/webcam_feed')
-def webcam_feed():
-    """
-    Stream single webcam MJPEG feed with YOLO inference.
-    Accepts ?model=<model_name> parameter to select model.
-    """
-    task = _normalize_task(request.args.get('task'))
-    models_for_task = _models_for_task(task)
-    model_name = request.args.get('model', _default_model_for_task(task, models_for_task))
-    if model_name not in models_for_task:
-        return Response(f"Model '{model_name}' is not available for {task}.", status=400)
-    cam = int(request.args.get('cam', 0)) if request.args.get('cam') is not None else 0
-    return Response(get_webcam_frame(model_name, camera_index=cam, task=task),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-
-@app.route('/webcam_feed_dual')
-def webcam_feed_dual():
-    """
-    Stream dual webcam MJPEG feed with YOLO inference.
-    Accepts ?model0=<model_name> and ?model1=<model_name> parameters.
-    """
-    task = _normalize_task(request.args.get('task'))
-    allowed = _models_for_task(task)
-    default_model = _default_model_for_task(task, allowed)
-    model0 = request.args.get('model0', default_model)
-    model1 = request.args.get('model1', default_model)
-    if model0 not in allowed or model1 not in allowed:
-        return Response('Requested model not available for selected task.', status=400)
-    return Response(get_dual_webcam_frame(model0, model1, task=task),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-
-@app.route('/webcam_feed_split')
-def webcam_feed_split():
-    """
-    Stream single-camera feed processed by two different models and combined vertically.
-    Accepts query params: ?model0=<m0>&model1=<m1>
-    """
-    task = _normalize_task(request.args.get('task'))
-    allowed = _models_for_task(task)
-    default_model = _default_model_for_task(task, allowed)
-    model0 = request.args.get('model0', default_model)
-    model1 = request.args.get('model1', default_model)
-    if model0 not in allowed or model1 not in allowed:
-        return Response('Requested model not available for selected task.', status=400)
-    cam = int(request.args.get('cam', 0)) if request.args.get('cam') is not None else 0
-    # Lazy import of the split generator from single_camera
-    from backend.single_camera import get_split_webcam_frame
-    return Response(get_split_webcam_frame(model0, model1, camera_index=cam, task=task),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/list_cameras')

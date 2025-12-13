@@ -288,6 +288,22 @@
         </div>
       </div>
 
+      <div class="form-group">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <label class="small" style="margin:0;">Capture scale</label>
+          <button type="button" class="btn btn-sm btn-link p-0" style="font-size:16px;" data-toggle="tooltip" title="Reduces camera resolution for faster inference. Lower scale = faster processing but smaller image. Server upscales output for display.">
+            <i class="fa fa-info-circle text-muted"></i>
+          </button>
+        </div>
+        <div>
+          <select id="webrtc-capture-scale" class="form-control form-control-sm" style="max-width:180px;">
+            <option value="1.0">100%</option>
+            <option value="0.75">75%</option>
+            <option value="0.5">50%</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Camera index selection modal (used when multiple cameras detected) -->
       <div id="camera-index-modal" class="modal" tabindex="-1" role="dialog" style="display:none;">
         <div class="modal-dialog" role="document">
@@ -406,15 +422,21 @@
 
 
 
-<!-- Result display area (images, WebRTC video, or MJPEG streams will be loaded here) -->
+<!-- Result display area (WebRTC video streams only) -->
 <div class="right-result-container" style="width:100%; display:flex; flex-direction:column; gap:12px; overflow:visible;">
   <!-- Primary WebRTC stream (single camera or first dual camera feed) -->
   <video id="webrtc-remote" playsinline autoplay muted style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px; background:transparent;"></video>
   <!-- Secondary WebRTC stream (used only for dual camera mode) -->
   <video id="webrtc-remote-secondary" playsinline autoplay muted style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px; background:transparent;"></video>
-  <!-- MJPEG / fallback elements -->
-  <img id="result-display" src="" alt="Detection result" style="max-width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd;" />
-  <img id="video-display" src="" alt="Video result" style="max-width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd;" />
+  <!-- Processed image result display -->
+  <img id="result-display" style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px;">
+  <!-- Real-time streaming video display (MJPEG stream) -->
+  <img id="result-stream-display" style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px;">
+  <!-- Processed video result display -->
+  <video id="result-video-display" controls style="width:100%; height:auto; display:none; object-fit:contain; border:1px solid #ddd; border-radius:4px;">
+    <source id="result-video-source" src="" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
   <!-- Loading spinner shown while server is processing -->
   <div id="result-spinner" style="display:none; margin-top:16px;">
     <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;">
@@ -433,7 +455,7 @@
     'image_url': image_url | default('', true),
     'video_present': video_present | default(false, true),
     'video_folder': video_folder | default('', true),
-    'server_video_stream_url': server_video_stream_url | default('', true),
+    'video_stream_url': video_stream_url | default('', true),
     'selected_task': selected_task | default('detection', true),
     'selected_model': selected_model | default('yolov8n.pt', true)
   }|tojson }}
@@ -453,7 +475,7 @@ if (serverContextElement) {
 var server_image_url = serverContext.image_url || '';
 var server_video_present = !!serverContext.video_present;
 var server_video_folder = serverContext.video_folder || '';
-var server_video_stream_url = serverContext.server_video_stream_url || '';
+var server_video_stream_url = serverContext.video_stream_url || '';
 var currentTask = serverContext.selected_task || 'detection';
 var fallbackModels = { detection: 'yolov8n.pt', segmentation: 'yolo11n-seg.pt', pose: 'yolov8n-pose.pt' };
 var currentModel = serverContext.selected_model || fallbackModels[currentTask] || fallbackModels.detection;
@@ -586,6 +608,22 @@ function resetResultOutputs() {
     img.style.display = 'none';
   }
 
+  var streamImg = document.getElementById('result-stream-display');
+  if (streamImg) {
+    try { streamImg.src = ''; } catch (err) {}
+    streamImg.style.display = 'none';
+  }
+
+  var videoDisplay = document.getElementById('result-video-display');
+  if (videoDisplay) {
+    var videoSource = document.getElementById('result-video-source');
+    if (videoSource) {
+      try { videoSource.src = ''; } catch (err) {}
+    }
+    try { videoDisplay.load(); } catch (err) {}
+    videoDisplay.style.display = 'none';
+  }
+
   var vimg = document.getElementById('video-display');
   if (vimg) {
     vimg.onload = null;
@@ -677,9 +715,29 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
   var manageTracks = options.manageTracks !== false;
 
   if (!localStream) {
+    // Allow the user to choose a capture scale to request lower resolutions
+    var scale = 1.0;
+    try {
+      var el = document.getElementById('webrtc-capture-scale');
+      if (el && el.value) {
+        scale = parseFloat(el.value) || 1.0;
+      }
+    } catch (e) { /* ignore */ }
+
+    // Map scale to a reasonable target resolution (width x height)
+    var target = { width: 1280, height: 720 };
+    if (scale >= 0.99) { target = { width: 1280, height: 720 }; }
+    else if (scale >= 0.74) { target = { width: 960, height: 540 }; }
+    else if (scale >= 0.49) { target = { width: 640, height: 360 }; }
+    else { target = { width: 320, height: 180 }; }
+
     var constraints = { video: true, audio: false };
+    // Request a lower capture FPS to reduce producer speed and avoid queue buildup
+    var fpsConstraints = { frameRate: { ideal: 12, max: 15 } };
     if (deviceId) {
-      constraints.video = { deviceId: { exact: deviceId } };
+      constraints.video = Object.assign({ deviceId: { exact: deviceId }, width: { ideal: target.width }, height: { ideal: target.height } }, fpsConstraints);
+    } else {
+      constraints.video = Object.assign({ width: { ideal: target.width }, height: { ideal: target.height } }, fpsConstraints);
     }
 
     try {
@@ -720,10 +778,41 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
     var offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
+    // include selected capture scale in the offer so server can adapt processing
+    var scaleVal = 1.0;
+    try {
+      var scaleEl = document.getElementById('webrtc-capture-scale');
+      if (scaleEl && scaleEl.value) scaleVal = parseFloat(scaleEl.value) || 1.0;
+    } catch (e) {}
+
+    // attempt to apply constraints to the outgoing local track to request lower resolution
+    try {
+      if (localStream && localStream.getVideoTracks && localStream.getVideoTracks().length) {
+        var vtrack = localStream.getVideoTracks()[0];
+        if (vtrack && vtrack.applyConstraints) {
+          var target = { width: 1280, height: 720 };
+          if (scaleVal >= 0.99) { target = { width: 1280, height: 720 }; }
+          else if (scaleVal >= 0.74) { target = { width: 960, height: 540 }; }
+          else if (scaleVal >= 0.49) { target = { width: 640, height: 360 }; }
+          else { target = { width: 320, height: 180 }; }
+          try {
+            await vtrack.applyConstraints({ width: { exact: target.width }, height: { exact: target.height }, frameRate: { exact: 12 } });
+          } catch (err) {
+            // exact may fail on some devices; try ideal
+            try { await vtrack.applyConstraints({ width: { ideal: target.width }, height: { ideal: target.height }, frameRate: { ideal: 12, max: 15 } }); } catch (e) { }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('applyConstraints failed', e);
+    }
+
+    // Include camera_id so server can bind the worker/track to the correct camera
+    var cameraIdVal = options && options.camera_id ? options.camera_id : (deviceId || '0');
     var response = await fetch("{{ url_for('webrtc_offer') }}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName })
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type, model: model, task: taskName, scale: scaleVal, camera_id: cameraIdVal })
     });
 
     var payload = await response.json();
@@ -774,8 +863,8 @@ async function startDualWebRTCSession(model0, deviceId0, model1, deviceId1) {
   }
 
   await Promise.all([
-    startSingleWebRTCSession(model0, deviceId0, remoteA, handleFrame),
-    startSingleWebRTCSession(model1, deviceId1, remoteB, handleFrame)
+    startSingleWebRTCSession(model0, deviceId0, remoteA, handleFrame, { camera_id: '0' }),
+    startSingleWebRTCSession(model1, deviceId1, remoteB, handleFrame, { camera_id: '1' })
   ]);
 }
 
@@ -801,7 +890,7 @@ async function startSplitWebRTCSession(model0, model1, camIndex) {
 
   var baseStream;
   try {
-    var constraints = { video: { deviceId: { exact: deviceId } }, audio: false };
+    var constraints = { video: { deviceId: { exact: deviceId }, frameRate: { ideal: 12, max: 15 } }, audio: false };
     baseStream = await navigator.mediaDevices.getUserMedia(constraints);
   } catch (err) {
     throw new Error('Camera access denied for split view: ' + err.message);
@@ -830,49 +919,14 @@ async function startSplitWebRTCSession(model0, model1, camIndex) {
 
   try {
     await Promise.all([
-      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA, task: taskName }),
-      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB, task: taskName })
+      startSingleWebRTCSession(model0, null, remoteA, handleFrame, { localStream: streamA, task: taskName, camera_id: '0' }),
+      startSingleWebRTCSession(model1, null, remoteB, handleFrame, { localStream: streamB, task: taskName, camera_id: '1' })
     ]);
   } catch (err) {
     streamA.getTracks().forEach(function(track){ try { track.stop(); } catch (stopErr) { console.warn('stop streamA track failed', stopErr); } });
     streamB.getTracks().forEach(function(track){ try { track.stop(); } catch (stopErr) { console.warn('stop streamB track failed', stopErr); } });
     throw err;
   }
-}
-
-function startLegacyStream(url) {
-  var vimg = document.getElementById('video-display');
-  var spinner = document.getElementById('result-spinner');
-  if (!vimg) {
-    return;
-  }
-
-  vimg.style.display = 'none';
-  vimg.onload = function() {
-    if (spinner) {
-      spinner.style.display = 'none';
-    }
-    vimg.style.display = 'block';
-    var stopBtn = document.getElementById('stop-btn');
-    if (stopBtn) {
-      stopBtn.style.display = 'inline-block';
-    }
-    updateWebrtcStatus('Streaming via server-side pipeline.', 'info');
-  };
-
-  vimg.src = url;
-
-  setTimeout(function() {
-    if (spinner && spinner.style.display !== 'none') {
-      spinner.style.display = 'none';
-      vimg.style.display = 'block';
-      var stopBtn = document.getElementById('stop-btn');
-      if (stopBtn) {
-        stopBtn.style.display = 'inline-block';
-      }
-      updateWebrtcStatus('Streaming via server-side pipeline.', 'info');
-    }
-  }, 5000);
 }
 
 function showUploadedResult() {
@@ -896,26 +950,33 @@ function showUploadedResult() {
       stopBtn.style.display = 'inline-block';
     }
   }
-  else if (server_video_present) {
-    try {
-      var feedUrlObj = new URL("{{ url_for('video_feed') }}", window.location.origin);
-      if (server_video_folder) {
-        feedUrlObj.searchParams.set('folder', server_video_folder);
-      }
-      feedUrlObj.searchParams.set('task', getCurrentTask());
-      startLegacyStream(feedUrlObj.toString());
-    } catch (err) {
-      var fallbackUrl = "{{ url_for('video_feed') }}";
-      if (server_video_folder) {
-        fallbackUrl += "?folder=" + encodeURIComponent(server_video_folder) + "&task=" + encodeURIComponent(getCurrentTask());
-      } else {
-        fallbackUrl += "?task=" + encodeURIComponent(getCurrentTask());
-      }
-      startLegacyStream(fallbackUrl);
+  else if (server_video_stream_url) {
+    // Display real-time streaming video from server
+    var streamImg = document.getElementById('result-stream-display');
+    if (streamImg) {
+      streamImg.src = server_video_stream_url;
+      streamImg.style.display = 'block';
+    }
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'inline-block';
     }
   }
-  else if (server_video_stream_url) {
-    startLegacyStream(server_video_stream_url);
+  else if (server_video_present && server_video_folder) {
+    // Display processed video (fallback if no stream URL)
+    var task = getCurrentTask();
+    var baseUrl = '/display/' + server_video_folder + '/output.mp4?task=' + encodeURIComponent(task);
+    var videoDisplay = document.getElementById('result-video-display');
+    var videoSource = document.getElementById('result-video-source');
+    if (videoDisplay && videoSource) {
+      videoSource.src = baseUrl;
+      videoDisplay.load();
+      videoDisplay.style.display = 'block';
+    }
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      stopBtn.style.display = 'inline-block';
+    }
   }
 }
 
@@ -1288,12 +1349,12 @@ document.getElementById('stop-btn').addEventListener('click', function(e){
 // If the server provided a processed image path, show it on load
 window.addEventListener('load', function(){
   showUploadedResult();
-  // If server returned a processed result, show the Detection dashboard so the user sees results immediately.
+  // If server returned a processed image, video stream, or video file, show the Detection dashboard so the user sees results immediately.
   try {
     var hasImage = (typeof server_image_url !== 'undefined' && server_image_url);
+    var hasVideoStream = (typeof server_video_stream_url !== 'undefined' && server_video_stream_url);
     var hasVideo = (typeof server_video_present !== 'undefined' && server_video_present === true);
-    var hasStream = (typeof server_video_stream_url !== 'undefined' && server_video_stream_url);
-    if (hasImage || hasVideo || hasStream) {
+    if (hasImage || hasVideoStream || hasVideo) {
       showDetectionView();
     } else {
       var taskNow = getCurrentTask();
