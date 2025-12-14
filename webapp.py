@@ -239,7 +239,25 @@ def predict_img():
     task = _normalize_task(request.args.get('task'))
     models_for_task = _models_for_task(task)
     selected_model = _select_model_for_task(request.args.get('model'), task, models_for_task)
-    ice_servers = get_ice_servers_for_client()
+    # Ensure the client receives ICE servers reliably
+    ice_servers = None
+    try:
+        ice_servers = get_ice_servers_for_client()
+    except Exception:
+        ice_servers = None
+
+    if not ice_servers:
+        ice_file = os.environ.get('ICE_SERVERS_FILE', '')
+        if ice_file and os.path.exists(ice_file):
+            try:
+                with open(ice_file, 'r') as f:
+                    ice_servers = json.loads(f.read())
+            except Exception:
+                ice_servers = None
+
+    if not ice_servers:
+        ice_servers = [{"urls": "stun:stun.l.google.com:19302"}]
+
     return render_template('index.html', selected_model=selected_model, models=models_for_task, selected_task=task, ice_servers=ice_servers)
 
 
