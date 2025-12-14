@@ -33,10 +33,25 @@ peer_connections: set[RTCPeerConnection] = set()
 def _get_ice_configuration():
     """Build RTCConfiguration with ICE servers from environment.
     
-    Reads ICE_SERVERS_JSON env var (JSON array of ice server dicts).
+    Reads ICE_SERVERS_FILE env var (path to JSON file) or ICE_SERVERS_JSON env var.
     Falls back to public STUN if not set.
     """
-    ice_servers_raw = os.environ.get('ICE_SERVERS_JSON', '')
+    ice_servers_raw = ''
+    
+    # Try reading from file first (avoids shell escaping issues)
+    ice_file = os.environ.get('ICE_SERVERS_FILE', '')
+    if ice_file and os.path.exists(ice_file):
+        try:
+            with open(ice_file, 'r') as f:
+                ice_servers_raw = f.read()
+            print(f"[WebRTC] Loaded ICE servers from file: {ice_file}")
+        except Exception as e:
+            print(f"[WebRTC] Failed to read ICE_SERVERS_FILE {ice_file}: {e}")
+    
+    # Fall back to env var if file not used
+    if not ice_servers_raw:
+        ice_servers_raw = os.environ.get('ICE_SERVERS_JSON', '')
+    
     ice_servers = []
     
     if ice_servers_raw:
@@ -53,9 +68,9 @@ def _get_ice_configuration():
                     username = entry.get('username')
                     credential = entry.get('credential')
                     ice_servers.append(RTCIceServer(urls=urls, username=username, credential=credential))
-                print(f"[WebRTC] Loaded {len(ice_servers)} ICE servers from ICE_SERVERS_JSON")
+                print(f"[WebRTC] Loaded {len(ice_servers)} ICE servers")
         except Exception as e:
-            print(f"[WebRTC] Failed to parse ICE_SERVERS_JSON: {e}")
+            print(f"[WebRTC] Failed to parse ICE servers: {e}")
     
     # Fallback to public STUN if no servers configured
     if not ice_servers:
