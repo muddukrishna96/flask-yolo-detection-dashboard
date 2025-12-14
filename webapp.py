@@ -258,6 +258,13 @@ def predict_img():
     if not ice_servers:
         ice_servers = [{"urls": "stun:stun.l.google.com:19302"}]
 
+    try:
+        app.logger.info('[ICE] Sending %d ICE server entries to client', len(ice_servers) if isinstance(ice_servers, list) else -1)
+        if isinstance(ice_servers, list) and ice_servers:
+            app.logger.info('[ICE] First entry urls=%s', ice_servers[0].get('urls'))
+    except Exception:
+        pass
+
     return render_template('index.html', selected_model=selected_model, models=models_for_task, selected_task=task, ice_servers=ice_servers)
 
 
