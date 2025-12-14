@@ -113,11 +113,38 @@ def hello_world():
     task = _normalize_task(request.args.get('task'))
     models_for_task = _models_for_task(task)
     selected_model = _select_model_for_task(request.args.get('model'), task, models_for_task)
+    # Provide ICE servers to client even on the initial render
+    ice_servers = None
+    try:
+        ice_servers = get_ice_servers_for_client()
+    except Exception:
+        ice_servers = None
+
+    if not ice_servers:
+        ice_file = os.environ.get('ICE_SERVERS_FILE', '')
+        if ice_file and os.path.exists(ice_file):
+            try:
+                with open(ice_file, 'r') as f:
+                    ice_servers = json.loads(f.read())
+            except Exception:
+                ice_servers = None
+
+    if not ice_servers:
+        ice_servers = [{"urls": "stun:stun.l.google.com:19302"}]
+
+    try:
+        print('[ICE] Sending {} ICE server entries to client'.format(len(ice_servers) if isinstance(ice_servers, list) else -1))
+        if isinstance(ice_servers, list) and ice_servers:
+            print('[ICE] First entry urls={}'.format(ice_servers[0].get('urls')))
+    except Exception:
+        pass
+
     return render_template(
         'index.html',
         models=models_for_task,
         selected_model=selected_model,
         selected_task=task,
+        ice_servers=ice_servers,
     )
 
     
