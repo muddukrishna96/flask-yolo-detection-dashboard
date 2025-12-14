@@ -33,7 +33,7 @@ from backend.image_video_processor import (
     annotate_frame,
 )
 
-from backend.webrtc_session import create_answer_for_offer, close_all_peers
+from backend.webrtc_session import create_answer_for_offer, close_all_peers, get_ice_servers_for_client
 
 
 # Flask app initialization
@@ -239,7 +239,8 @@ def predict_img():
     task = _normalize_task(request.args.get('task'))
     models_for_task = _models_for_task(task)
     selected_model = _select_model_for_task(request.args.get('model'), task, models_for_task)
-    return render_template('index.html', selected_model=selected_model, models=models_for_task, selected_task=task)
+    ice_servers = get_ice_servers_for_client()
+    return render_template('index.html', selected_model=selected_model, models=models_for_task, selected_task=task, ice_servers=ice_servers)
 
 
 @app.route('/upload_model', methods=['POST'])

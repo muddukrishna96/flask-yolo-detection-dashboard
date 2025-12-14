@@ -2,9 +2,10 @@ import asyncio
 import time
 import cv2
 import os
+import json
 import numpy as np
 
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaRelay
 from aiortc.mediastreams import MediaStreamTrack
 from av import VideoFrame
@@ -27,6 +28,55 @@ TRACK_DEBUG_EVERY = int(os.environ.get('TRACK_DEBUG_EVERY', 30))
 
 relay = MediaRelay()
 peer_connections: set[RTCPeerConnection] = set()
+
+
+def _get_ice_configuration():
+    """Build RTCConfiguration with ICE servers from environment.
+    
+    Reads ICE_SERVERS_JSON env var (JSON array of ice server dicts).
+    Falls back to public STUN if not set.
+    """
+    ice_servers_raw = os.environ.get('ICE_SERVERS_JSON', '')
+    ice_servers = []
+    
+    if ice_servers_raw:
+        try:
+            parsed = json.loads(ice_servers_raw)
+            if isinstance(parsed, list):
+                for entry in parsed:
+                    urls = entry.get('urls')
+                    if not urls:
+                        continue
+                    # Ensure urls is a list
+                    if isinstance(urls, str):
+                        urls = [urls]
+                    username = entry.get('username')
+                    credential = entry.get('credential')
+                    ice_servers.append(RTCIceServer(urls=urls, username=username, credential=credential))
+                print(f"[WebRTC] Loaded {len(ice_servers)} ICE servers from ICE_SERVERS_JSON")
+        except Exception as e:
+            print(f"[WebRTC] Failed to parse ICE_SERVERS_JSON: {e}")
+    
+    # Fallback to public STUN if no servers configured
+    if not ice_servers:
+        ice_servers = [RTCIceServer(urls=["stun:stun.l.google.com:19302"])]
+        print("[WebRTC] Using fallback STUN server (stun.l.google.com:19302)")
+    
+    return RTCConfiguration(iceServers=ice_servers)
+
+
+def get_ice_servers_for_client():
+    """Return ICE servers in browser-compatible format for embedding in page context."""
+    ice_servers_raw = os.environ.get('ICE_SERVERS_JSON', '')
+    if ice_servers_raw:
+        try:
+            parsed = json.loads(ice_servers_raw)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+    # Fallback
+    return [{'urls': 'stun:stun.l.google.com:19302'}]
 
 
 class YOLOTransformTrack(MediaStreamTrack):
@@ -240,7 +290,8 @@ async def _build_peer_connection(model_name: str, task: str = 'detection', scale
     except ValueError as exc:
         raise ValueError(f"Model '{model_name}' is not available on the server") from exc
 
-    pc = RTCPeerConnection()
+    ice_config = _get_ice_configuration()
+    pc = RTCPeerConnection(configuration=ice_config)
     peer_connections.add(pc)
 
     @pc.on("connectionstatechange")
