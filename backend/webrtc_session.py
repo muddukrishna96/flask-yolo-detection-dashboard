@@ -82,7 +82,21 @@ def _get_ice_configuration():
 
 def get_ice_servers_for_client():
     """Return ICE servers in browser-compatible format for embedding in page context."""
-    ice_servers_raw = os.environ.get('ICE_SERVERS_JSON', '')
+    ice_servers_raw = ''
+    
+    # Try reading from file first
+    ice_file = os.environ.get('ICE_SERVERS_FILE', '')
+    if ice_file and os.path.exists(ice_file):
+        try:
+            with open(ice_file, 'r') as f:
+                ice_servers_raw = f.read()
+        except Exception as e:
+            print(f"[WebRTC] get_ice_servers_for_client: Failed to read file {ice_file}: {e}")
+    
+    # Fall back to env var
+    if not ice_servers_raw:
+        ice_servers_raw = os.environ.get('ICE_SERVERS_JSON', '')
+    
     if ice_servers_raw:
         try:
             parsed = json.loads(ice_servers_raw)
