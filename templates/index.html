@@ -479,6 +479,8 @@ var server_video_stream_url = serverContext.video_stream_url || '';
 var currentTask = serverContext.selected_task || 'detection';
 var fallbackModels = { detection: 'yolov8n.pt', segmentation: 'yolo11n-seg.pt', pose: 'yolov8n-pose.pt' };
 var currentModel = serverContext.selected_model || fallbackModels[currentTask] || fallbackModels.detection;
+var iceServers = serverContext.ice_servers || [{ urls: 'stun:stun.l.google.com:19302' }];
+console.log('[WebRTC] ICE servers configured:', iceServers);
 
 var webrtcManager = {
   sessions: [],
@@ -747,7 +749,7 @@ async function startSingleWebRTCSession(model, deviceId, remoteVideo, onFirstFra
     }
   }
 
-  var pc = new PeerConnection();
+  var pc = new PeerConnection({ iceServers: iceServers });
   var session = { pc: pc, localStream: localStream, remoteVideo: remoteVideo, manageTracks: manageTracks };
   webrtcManager.add(session);
 
